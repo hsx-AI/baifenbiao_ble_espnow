@@ -60,7 +60,7 @@ function renderMeter(data) {
   const online = nodeAlive && data.ble_connected !== false;
   card.classList.toggle('online', online);
   card.classList.toggle('reconnecting', nodeAlive && !online);
-  card.querySelector('.state span').textContent = online ? '在线' : nodeAlive ? '重连中' : '节点离线';
+  card.querySelector('.state span').textContent = online ? '表在线' : nodeAlive ? '表断开 · 重连' : '从站离线';
   card.querySelector('.node').textContent = pad(data.node_id || 0);
   card.querySelector('.seq').textContent = data.sequence ?? '--';
   const signal = card.querySelector('.signal');
@@ -93,7 +93,7 @@ function refreshOnline() {
     const card = document.querySelector(`#meter-${id}`);
     card.classList.toggle('online', isOnline);
     card.classList.toggle('reconnecting', nodeAlive && !isOnline);
-    card.querySelector('.state span').textContent = isOnline ? '在线' : nodeAlive ? '重连中' : '节点离线';
+    card.querySelector('.state span').textContent = isOnline ? '表在线' : nodeAlive ? '表断开 · 重连' : '从站离线';
     if (isOnline) online++;
   }
   document.querySelector('#onlineCount').textContent = online;
@@ -151,6 +151,8 @@ function collectConfig() {
   const nodes = [...document.querySelectorAll('.node-config')].map(card => ({
     node_id: Number(card.dataset.nodeId),
     port: card.querySelector('.port-select').value,
+    keepalive_mode: Number(card.querySelector('.keepalive-mode').value),
+    keepalive_seconds: Number(card.querySelector('.keepalive-seconds').value),
     meters: [...card.querySelectorAll('.slot-row')].map(row => ({
       slot: Number(row.dataset.slot),
       meter_id: Number(row.querySelector('.meter-id-input').value),
@@ -185,6 +187,17 @@ function renderNodeGrid() {
         <span class="slot-count">${node.meters.filter(m => m.mac).length} / 5 已分配</span>
       </div>
       <div class="port-line"><label>配置串口</label><select class="port-select">${portOptions(node.port)}</select></div>
+      <div class="experiment-line">
+        <label>防关机实验</label>
+        <select class="keepalive-mode">
+          <option value="0" ${node.keepalive_mode === 0 ? 'selected' : ''}>关闭 · 对照组</option>
+          <option value="1" ${node.keepalive_mode === 1 ? 'selected' : ''}>CRLF · 0D 0A</option>
+          <option value="2" ${node.keepalive_mode === 2 ? 'selected' : ''}>QUERY · 3F 0D 0A</option>
+          <option value="3" ${node.keepalive_mode === 3 ? 'selected' : ''}>NUL · 00</option>
+        </select>
+        <label>间隔（秒）</label>
+        <input class="keepalive-seconds" type="number" min="30" max="600" value="${node.keepalive_seconds || 90}">
+      </div>
       <div class="slot-list">
         ${node.meters.map(meter => `
           <div class="slot-row" data-slot="${meter.slot}">

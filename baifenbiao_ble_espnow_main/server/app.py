@@ -129,7 +129,13 @@ def default_meter_config() -> dict[str, Any]:
         for slot in range(1, 6):
             meter_id = start + slot - 1
             meters.append({"slot": slot, "meter_id": meter_id, "mac": "", "name": ""})
-        nodes.append({"node_id": node_id, "port": "COM34" if node_id == 1 else "", "meters": meters})
+        nodes.append({
+            "node_id": node_id,
+            "port": "COM34" if node_id == 1 else "",
+            "keepalive_mode": node_id - 1,
+            "keepalive_seconds": 90,
+            "meters": meters,
+        })
     nodes[0]["meters"][0].update({"mac": "C4:AD:BF:FE:96:AF", "name": "021733486"})
     return {"version": 1, "nodes": nodes}
 
@@ -157,6 +163,12 @@ def validate_meter_config(payload: dict[str, Any]) -> dict[str, Any]:
         if not 1 <= node_id <= 255 or node_id in seen_nodes:
             raise ValueError(f"从站编号无效或重复：{node_id}")
         seen_nodes.add(node_id)
+        keepalive_mode = int(node.get("keepalive_mode", min(node_id - 1, 3)))
+        keepalive_seconds = int(node.get("keepalive_seconds", 90))
+        if not 0 <= keepalive_mode <= 3:
+            raise ValueError(f"从站{node_id}保活策略必须为0..3")
+        if not 30 <= keepalive_seconds <= 600:
+            raise ValueError(f"从站{node_id}保活间隔必须为30..600秒")
         meters = node.get("meters")
         if not isinstance(meters, list) or len(meters) != 5:
             raise ValueError(f"从站{node_id}必须配置5个槽位")
@@ -181,6 +193,8 @@ def validate_meter_config(payload: dict[str, Any]) -> dict[str, Any]:
         normalized_nodes.append({
             "node_id": node_id,
             "port": str(node.get("port", "")).strip(),
+            "keepalive_mode": keepalive_mode,
+            "keepalive_seconds": keepalive_seconds,
             "meters": sorted(clean_meters, key=lambda item: item["slot"]),
         })
     return {"version": 1, "nodes": sorted(normalized_nodes, key=lambda item: item["node_id"])}
@@ -225,6 +239,7 @@ def configure_slave_serial(port: str, node: dict[str, Any]) -> list[str]:
         connection.rts = False
         read_lines(connection, 0.8)
         send(connection, f"node set {node['node_id']}")
+        send(connection, f"keepalive set {node['keepalive_mode']} {node['keepalive_seconds']}")
         for slot in range(1, 6):
             send(connection, f"map clear {slot}")
         for meter in node["meters"]:
