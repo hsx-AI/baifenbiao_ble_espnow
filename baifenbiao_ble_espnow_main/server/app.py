@@ -48,7 +48,10 @@ class GatewayState:
 
     def status(self) -> dict[str, Any]:
         now = time.time()
-        online = sum(1 for meter in self.meters.values() if now - meter["received_at"] < 3.0)
+        online = sum(
+            1 for meter in self.meters.values()
+            if meter.get("ble_connected", False) and now - meter["received_at"] < 6.0
+        )
         return {
             "serial_connected": self.serial_connected,
             "serial_port": self.serial_port,
@@ -68,11 +71,18 @@ class GatewayState:
         if not 1 <= meter_id <= MAX_METERS:
             return
         now = time.time()
+        heartbeat = bool(payload.get("heartbeat", False))
+        previous = self.meters.get(meter_id)
+        ble_connected = bool(payload.get("ble_connected", not heartbeat))
+        valid = bool(payload.get("valid", False))
+        measurement_at = (
+            previous.get("measurement_at") if heartbeat and previous else now if not heartbeat else None
+        )
         normalized = {
             "node_id": int(payload.get("node_id", 0)),
             "meter_id": meter_id,
             "sequence": int(payload.get("sequence", 0)),
-            "valid": bool(payload.get("valid", False)),
+            "valid": valid,
             "value_mm": float(payload.get("value_mm", 0.0)),
             "unit": str(payload.get("unit", "mm")),
             "source": str(payload.get("source", "unknown")),
@@ -81,12 +91,19 @@ class GatewayState:
             "raw_hex": str(payload.get("raw_hex", "")),
             "received_at": now,
             "timestamp_ms": int(now * 1000),
+            "measurement_at": measurement_at,
+            "measurement_timestamp_ms": int(measurement_at * 1000) if measurement_at else None,
+            "heartbeat": heartbeat,
+            "ble_connected": ble_connected,
         }
         self.meters[meter_id] = normalized
         self.total_packets += 1
         if self.loop:
             self.loop.call_soon_threadsafe(
-                lambda: asyncio.create_task(self.broadcast({"type": "measurement", "data": normalized}))
+                lambda: asyncio.create_task(self.broadcast({
+                    "type": "status" if heartbeat else "measurement",
+                    "data": normalized,
+                }))
             )
 
     async def broadcast(self, message: dict[str, Any]) -> None:
@@ -288,6 +305,8 @@ async def simulator() -> None:
                 "meter_id": 1,
                 "sequence": sequence,
                 "valid": True,
+                "heartbeat": False,
+                "ble_connected": True,
                 "value_mm": round(value, 4),
                 "unit": "mm",
                 "source": "simulation",

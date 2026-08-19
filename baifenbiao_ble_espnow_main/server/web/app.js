@@ -56,9 +56,11 @@ function renderMeter(data) {
   if (id < 1 || id > MAX_METERS) return;
   meters.set(id, data);
   const card = document.querySelector(`#meter-${id}`);
-  const online = Date.now() - data.timestamp_ms < 3000;
+  const nodeAlive = Date.now() - data.timestamp_ms < 6000;
+  const online = nodeAlive && data.ble_connected !== false;
   card.classList.toggle('online', online);
-  card.querySelector('.state span').textContent = online ? '在线' : '离线';
+  card.classList.toggle('reconnecting', nodeAlive && !online);
+  card.querySelector('.state span').textContent = online ? '在线' : nodeAlive ? '重连中' : '节点离线';
   card.querySelector('.node').textContent = pad(data.node_id || 0);
   card.querySelector('.seq').textContent = data.sequence ?? '--';
   const signal = card.querySelector('.signal');
@@ -68,14 +70,16 @@ function renderMeter(data) {
   const note = card.querySelector('.protocol-note');
   if (data.valid) {
     card.querySelector('.reading strong').textContent = Number(data.value_mm).toFixed(4);
-    note.textContent = '';
-    const list = histories.get(id);
-    list.push(Number(data.value_mm));
-    if (list.length > 50) list.shift();
-    drawSpark(id);
+    note.textContent = online ? (data.heartbeat && !data.measurement_timestamp_ms ? '已连接 · 等待读数' : '') : '蓝牙断开 · 自动重连中';
+    if (!data.heartbeat) {
+      const list = histories.get(id);
+      list.push(Number(data.value_mm));
+      if (list.length > 50) list.shift();
+      drawSpark(id);
+    }
   } else {
     card.querySelector('.reading strong').textContent = '--.----';
-    note.textContent = data.raw_hex ? '已收到原始数据 · 待解析协议' : '等待有效读数';
+    note.textContent = !nodeAlive ? '从站心跳超时' : !online ? '蓝牙断开 · 自动重连中' : data.raw_hex ? '已收到原始数据 · 待解析协议' : '已连接 · 等待读数';
   }
   card.classList.remove('pulse');
   requestAnimationFrame(() => card.classList.add('pulse'));
@@ -84,10 +88,12 @@ function renderMeter(data) {
 function refreshOnline() {
   let online = 0;
   for (const [id, data] of meters) {
-    const isOnline = Date.now() - data.timestamp_ms < 3000;
+    const nodeAlive = Date.now() - data.timestamp_ms < 6000;
+    const isOnline = nodeAlive && data.ble_connected !== false;
     const card = document.querySelector(`#meter-${id}`);
     card.classList.toggle('online', isOnline);
-    card.querySelector('.state span').textContent = isOnline ? '在线' : '离线';
+    card.classList.toggle('reconnecting', nodeAlive && !isOnline);
+    card.querySelector('.state span').textContent = isOnline ? '在线' : nodeAlive ? '重连中' : '节点离线';
     if (isOnline) online++;
   }
   document.querySelector('#onlineCount').textContent = online;
@@ -109,7 +115,7 @@ function connect() {
       totalPackets = msg.status?.total_packets || 0;
       if (msg.status?.simulate) setGateway(true, '演示数据');
       else if (msg.status?.serial_connected) setGateway(true, `主站串口 ${msg.status.serial_port}`);
-    } else if (msg.type === 'measurement') {
+    } else if (msg.type === 'measurement' || msg.type === 'status') {
       renderMeter(msg.data); totalPackets++;
     }
     document.querySelector('#packetCount').textContent = totalPackets.toLocaleString();
