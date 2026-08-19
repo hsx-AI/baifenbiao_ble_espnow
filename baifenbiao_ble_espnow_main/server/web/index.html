@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>精密测量 · 百分表监控</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"><span></span><span></span><i></i></div>
+        <div><p>PRECISION GRID</p><h1>百分表实时监控</h1></div>
+      </div>
+      <nav class="view-tabs" aria-label="页面切换">
+        <button class="view-tab active" data-view="monitor">实时监控</button>
+        <button class="view-tab" data-view="config">设备配置</button>
+      </nav>
+      <div class="gateway-pill"><i id="gatewayDot"></i><span id="gatewayText">正在连接网关</span><b id="clock">--:--:--</b></div>
+    </header>
+
+    <div id="monitorView" class="view active">
+    <section class="overview">
+      <div class="hero-copy">
+        <span class="eyebrow">MEASUREMENT CONTROL CENTER</span>
+        <h2>20 路精密位移<br><em>一屏掌握</em></h2>
+        <p>BLE 采集 · ESP-NOW 汇聚 · 串口实时上云</p>
+      </div>
+      <div class="metrics">
+        <article><span>在线仪表</span><strong id="onlineCount">0</strong><small>/ 20</small></article>
+        <article><span>累计数据</span><strong id="packetCount">0</strong><small>帧</small></article>
+        <article><span>当前速率</span><strong id="packetRate">0.0</strong><small>Hz</small></article>
+      </div>
+    </section>
+
+    <section class="section-head">
+      <div><span>LIVE CHANNELS</span><h3>测量通道</h3></div>
+      <div class="legend"><i class="live"></i>在线 <i class="waiting"></i>待机</div>
+    </section>
+    <section id="meterGrid" class="meter-grid" aria-live="polite"></section>
+    </div>
+
+    <div id="configView" class="view">
+      <section class="config-hero">
+        <div>
+          <span class="eyebrow">DEVICE PROVISIONING</span>
+          <h2>蓝牙发现与从站配置</h2>
+          <p>打开百分表电源后扫描，分配到指定从站槽位，再写入对应 ESP32-C3。</p>
+        </div>
+        <div class="config-actions">
+          <button id="scanButton" class="primary-button">扫描附近百分表</button>
+          <button id="saveButton" class="secondary-button">保存全部映射</button>
+        </div>
+      </section>
+
+      <section class="scan-panel panel">
+        <div class="panel-head">
+          <div><span>BLUETOOTH SCANNER</span><h3>扫描结果</h3></div>
+          <div id="scanStatus" class="soft-status">尚未扫描</div>
+        </div>
+        <div class="scan-tip">提示：正在被从站连接的表不会广播。批量登记时，可先关闭从站或执行 <code>discover off</code>，然后开启全部百分表。</div>
+        <div id="scanResults" class="scan-results empty-state">点击“扫描附近百分表”开始发现设备</div>
+      </section>
+
+      <section class="mapping-head">
+        <div><span>METER ASSIGNMENT</span><h3>4 台从站 · 20 路表号映射</h3></div>
+        <div id="configStatus" class="soft-status">配置已载入</div>
+      </section>
+      <section id="nodeGrid" class="node-grid"></section>
+
+      <section class="operation-panel panel">
+        <div class="panel-head"><div><span>OPERATION LOG</span><h3>配置日志</h3></div><button id="clearLog" class="text-button">清空</button></div>
+        <pre id="operationLog">等待操作……</pre>
+      </section>
+    </div>
+
+    <footer><span>ESP32-C3 DISTRIBUTED MEASUREMENT SYSTEM</span><span id="footerStatus">等待数据</span></footer>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

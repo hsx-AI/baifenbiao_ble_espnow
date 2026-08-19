@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "node_id": 1,
+      "port": "COM34",
+      "meters": [
+        {
+          "slot": 1,
+          "meter_id": 1,
+          "mac": "C4:AD:BF:FE:96:AF",
+          "name": "021733486"
+        },
+        {
+          "slot": 2,
+          "meter_id": 2,
+          "mac": "DD:B8:2F:82:6C:F1",
+          "name": "021733398"
+        },
+        {
+          "slot": 3,
+          "meter_id": 3,
+          "mac": "C7:59:F9:90:68:90",
+          "name": "021733390"
+        },
+        {
+          "slot": 4,
+          "meter_id": 4,
+          "mac": "F6:6D:C8:40:30:73",
+          "name": "021733405"
+        },
+        {
+          "slot": 5,
+          "meter_id": 5,
+          "mac": "FF:33:67:07:9B:5A",
+          "name": "021733589"
+        }
+      ]
+    },
+    {
+      "node_id": 2,
+      "port": "COM35",
+      "meters": [
+        {
+          "slot": 1,
+          "meter_id": 6,
+          "mac": "D1:10:91:2E:2C:81",
+          "name": "021733368"
+        },
+        {
+          "slot": 2,
+          "meter_id": 7,
+          "mac": "E1:06:73:C4:C6:B5",
+          "name": "021733380"
+        },
+        {
+          "slot": 3,
+          "meter_id": 8,
+          "mac": "D4:FA:8A:40:1D:C0",
+          "name": "021733370"
+        },
+        {
+          "slot": 4,
+          "meter_id": 9,
+          "mac": "EA:5F:45:63:2C:44",
+          "name": "021733590"
+        },
+        {
+          "slot": 5,
+          "meter_id": 10,
+          "mac": "E2:93:3B:DE:2F:AB",
+          "name": "021733432"
+        }
+      ]
+    },
+    {
+      "node_id": 3,
+      "port": "COM36",
+      "meters": [
+        {
+          "slot": 1,
+          "meter_id": 11,
+          "mac": "D3:A6:65:4B:0E:ED",
+          "name": "021733374"
+        },
+        {
+          "slot": 2,
+          "meter_id": 12,
+          "mac": "E9:A4:99:BD:51:3F",
+          "name": "021733401"
+        },
+        {
+          "slot": 3,
+          "meter_id": 13,
+          "mac": "D5:69:13:38:C6:BC",
+          "name": "021733399"
+        },
+        {
+          "slot": 4,
+          "meter_id": 14,
+          "mac": "C4:3C:AE:A1:66:50",
+          "name": "021733369"
+        },
+        {
+          "slot": 5,
+          "meter_id": 15,
+          "mac": "F8:83:53:6E:D0:22",
+          "name": "021733367"
+        }
+      ]
+    },
+    {
+      "node_id": 4,
+      "port": "COM37",
+      "meters": [
+        {
+          "slot": 1,
+          "meter_id": 16,
+          "mac": "C9:96:63:C1:4D:B7",
+          "name": "021733436"
+        },
+        {
+          "slot": 2,
+          "meter_id": 17,
+          "mac": "CA:6A:40:81:D6:65",
+          "name": "021733434"
+        },
+        {
+          "slot": 3,
+          "meter_id": 18,
+          "mac": "C3:EA:35:27:C0:85",
+          "name": "021733377"
+        },
+        {
+          "slot": 4,
+          "meter_id": 19,
+          "mac": "E1:47:6B:29:EF:5C",
+          "name": "021733373"
+        },
+        {
+          "slot": 5,
+          "meter_id": 20,
+          "mac": "F4:58:F0:4B:37:EA",
+          "name": "021733444"
+        }
+      ]
+    }
+  ]
+}

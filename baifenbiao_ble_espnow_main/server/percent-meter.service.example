@@ -1,0 +1,19 @@
+[Unit]
+Description=BLE Dial Indicator Gateway
+After=network.target bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+User=YOUR_USER
+Group=YOUR_USER
+SupplementaryGroups=dialout bluetooth
+WorkingDirectory=/opt/baifenbiao_ble_espnow_main/server
+Environment=SERIAL_PORT=/dev/serial/by-id/YOUR_XIAO_ESP32C3
+Environment=SIMULATE=0
+ExecStart=/opt/baifenbiao_ble_espnow_main/server/.venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

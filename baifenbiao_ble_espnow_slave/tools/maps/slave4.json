@@ -1,0 +1,10 @@
+{
+  "node_id": 4,
+  "meters": [
+    {"slot": 1, "meter_id": 16, "mac": ""},
+    {"slot": 2, "meter_id": 17, "mac": ""},
+    {"slot": 3, "meter_id": 18, "mac": ""},
+    {"slot": 4, "meter_id": 19, "mac": ""},
+    {"slot": 5, "meter_id": 20, "mac": ""}
+  ]
+}
