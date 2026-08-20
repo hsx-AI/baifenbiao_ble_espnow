@@ -12,6 +12,8 @@ enum MeterFlags : uint8_t {
   METER_FROM_NOTIFY = 1 << 2,
   METER_FROM_READ = 1 << 3,
   METER_FROM_HID = 1 << 4,
+  METER_HEARTBEAT = 1 << 5,
+  METER_BLE_CONNECTED = 1 << 6,
 };
 
 struct __attribute__((packed)) MeterPacket {

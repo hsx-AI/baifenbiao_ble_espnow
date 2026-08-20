@@ -26,15 +26,24 @@ struct MeterRuntime {
   MeterMapEntry map;
   NimBLEClient *client = nullptr;
   NimBLERemoteCharacteristic *dataCharacteristic = nullptr;
+  NimBLERemoteCharacteristic *controlCharacteristic = nullptr;
   bool connecting = false;
   bool connected = false;
   int8_t rssi = 0;
   uint32_t sequence = 0;
+  uint32_t lastHeartbeatMs = 0;
+  uint32_t lastKeepaliveMs = 0;
+  uint32_t nextReconnectMs = 0;
+  uint8_t reconnectAttempts = 0;
+  int32_t lastValue01Um = 0;
+  bool hasValue = false;
 };
 
 Preferences preferences;
 MeterRuntime meters[MAX_METERS_PER_NODE];
 uint8_t nodeId = DEFAULT_NODE_ID;
+uint8_t keepaliveMode = 0;
+uint32_t keepaliveIntervalMs = 90000;
 bool discoveryMode = false;
 bool rebootRequired = false;
 uint32_t lastStatusMs = 0;
@@ -48,6 +57,8 @@ volatile uint8_t queueHead = 0;
 volatile uint8_t queueTail = 0;
 volatile uint32_t droppedPackets = 0;
 portMUX_TYPE queueMux = portMUX_INITIALIZER_UNLOCKED;
+
+void printHex(const uint8_t *data, size_t length);
 
 String normalizeMac(String mac) {
   mac.trim();
@@ -92,6 +103,10 @@ void loadConfiguration() {
   preferences.begin("meter-map", false);
   if (!preferences.getBool("initialized", false)) initializeDefaults();
   nodeId = preferences.getUChar("node", DEFAULT_NODE_ID);
+  keepaliveMode = preferences.getUChar("ka-mode", 0);
+  if (keepaliveMode > 3) keepaliveMode = 0;
+  const uint32_t storedKeepaliveSeconds = preferences.getUInt("ka-sec", 90);
+  keepaliveIntervalMs = std::max<uint32_t>(30, std::min<uint32_t>(storedKeepaliveSeconds, 600)) * 1000UL;
   for (uint8_t i = 0; i < MAX_METERS_PER_NODE; ++i) {
     meters[i].map.meterId = preferences.getUChar(slotKey("mid", i).c_str(), 0);
     const String mac = normalizeMac(preferences.getString(slotKey("mac", i).c_str(), ""));
@@ -100,9 +115,21 @@ void loadConfiguration() {
   }
 }
 
+const char *keepaliveModeName(uint8_t mode) {
+  switch (mode) {
+    case 1: return "CRLF(0D0A)";
+    case 2: return "QUERY(3F0D0A)";
+    case 3: return "NUL(00)";
+    default: return "OFF";
+  }
+}
+
 void printConfiguration() {
   Serial.printf("[MAP] node_id=%u max_slots=%u%s\n", nodeId, MAX_METERS_PER_NODE,
                 rebootRequired ? " REBOOT_REQUIRED" : "");
+  Serial.printf("[KEEPALIVE] mode=%u name=%s interval_sec=%lu\n", keepaliveMode,
+                keepaliveModeName(keepaliveMode),
+                static_cast<unsigned long>(keepaliveIntervalMs / 1000UL));
   for (uint8_t i = 0; i < MAX_METERS_PER_NODE; ++i) {
     Serial.printf("[MAP] slot=%u meter_id=%u mac=%s state=%s\n", i + 1,
                   meters[i].map.meterId, meters[i].map.mac[0] ? meters[i].map.mac : "-",
@@ -117,10 +144,66 @@ bool anyConfigured() {
 }
 
 bool needsConnection() {
+  const uint32_t now = millis();
   for (const auto &meter : meters) {
-    if (meter.map.enabled && !meter.connected && !meter.connecting) return true;
+    if (meter.map.enabled && !meter.connected && !meter.connecting &&
+        static_cast<int32_t>(now - meter.nextReconnectMs) >= 0) return true;
   }
   return false;
+}
+
+void scheduleReconnect(MeterRuntime &meter, const char *reason) {
+  meter.connected = false;
+  meter.connecting = false;
+  meter.dataCharacteristic = nullptr;
+  meter.controlCharacteristic = nullptr;
+  const uint8_t exponent = std::min<uint8_t>(meter.reconnectAttempts, 5);
+  const uint32_t delayMs = std::min<uint32_t>(RECONNECT_MIN_DELAY_MS << exponent,
+                                               RECONNECT_MAX_DELAY_MS);
+  if (meter.reconnectAttempts < 255) ++meter.reconnectAttempts;
+  meter.nextReconnectMs = millis() + delayMs;
+  Serial.printf("[RECONNECT] meter=%u reason=%s attempt=%u retry_in_ms=%lu\n",
+                meter.map.meterId, reason, meter.reconnectAttempts,
+                static_cast<unsigned long>(delayMs));
+}
+
+bool sendKeepalive(MeterRuntime &meter, bool manual) {
+  if (!meter.connected || !meter.client || !meter.client->isConnected() ||
+      !meter.controlCharacteristic || keepaliveMode == 0) return false;
+
+  static const uint8_t kCrlf[] = {0x0D, 0x0A};
+  static const uint8_t kQuery[] = {0x3F, 0x0D, 0x0A};
+  static const uint8_t kNul[] = {0x00};
+  const uint8_t *payload = nullptr;
+  size_t payloadLength = 0;
+  switch (keepaliveMode) {
+    case 1: payload = kCrlf; payloadLength = sizeof(kCrlf); break;
+    case 2: payload = kQuery; payloadLength = sizeof(kQuery); break;
+    case 3: payload = kNul; payloadLength = sizeof(kNul); break;
+    default: return false;
+  }
+
+  const bool withResponse = meter.controlCharacteristic->canWrite();
+  const bool success = meter.controlCharacteristic->writeValue(payload, payloadLength, withResponse);
+  Serial.printf("[KEEPALIVE] meter=%u mode=%u payload=", meter.map.meterId, keepaliveMode);
+  printHex(payload, payloadLength);
+  Serial.printf(" write=%s response=%s trigger=%s\n", success ? "ok" : "failed",
+                withResponse ? "yes" : "no", manual ? "manual" : "timer");
+  if (!success && (!meter.client || !meter.client->isConnected())) {
+    scheduleReconnect(meter, "keepalive-write-failed");
+  }
+  return success;
+}
+
+void sendScheduledKeepalives() {
+  if (keepaliveMode == 0) return;
+  const uint32_t now = millis();
+  for (auto &meter : meters) {
+    if (!meter.map.enabled || !meter.connected ||
+        now - meter.lastKeepaliveMs < keepaliveIntervalMs) continue;
+    meter.lastKeepaliveMs = now;
+    sendKeepalive(meter, false);
+  }
 }
 
 uint8_t connectedCount() {
@@ -214,17 +297,49 @@ void queueMeasurement(MeterRuntime &meter, const uint8_t *data, size_t length) {
   packet.version = METER_PACKET_VERSION;
   packet.nodeId = nodeId;
   packet.meterId = meter.map.meterId;
-  packet.flags = METER_FROM_NOTIFY;
+  packet.flags = METER_FROM_NOTIFY | METER_BLE_CONNECTED;
   packet.sequence = ++meter.sequence;
   packet.uptimeMs = millis();
   packet.bleRssi = meter.rssi;
   packet.rawLength = std::min(length, METER_RAW_MAX);
   memcpy(packet.raw, data, packet.rawLength);
   int32_t parsedValue01Um = 0;
-  if (parseAsciiNumber(data, length, parsedValue01Um)) packet.flags |= METER_VALID;
+  if (parseAsciiNumber(data, length, parsedValue01Um)) {
+    packet.flags |= METER_VALID;
+    meter.lastValue01Um = parsedValue01Um;
+    meter.hasValue = true;
+  }
   packet.value01Um = parsedValue01Um;
   packet.checksum = meterChecksum(packet);
   enqueuePacket(packet);
+}
+
+void queueHeartbeat(MeterRuntime &meter) {
+  MeterPacket packet{};
+  packet.magic = METER_PACKET_MAGIC;
+  packet.version = METER_PACKET_VERSION;
+  packet.nodeId = nodeId;
+  packet.meterId = meter.map.meterId;
+  packet.flags = METER_HEARTBEAT;
+  if (meter.connected && meter.client && meter.client->isConnected()) {
+    packet.flags |= METER_BLE_CONNECTED;
+  }
+  if (meter.hasValue) packet.flags |= METER_VALID;
+  packet.sequence = ++meter.sequence;
+  packet.uptimeMs = millis();
+  packet.value01Um = meter.lastValue01Um;
+  packet.bleRssi = meter.rssi;
+  packet.checksum = meterChecksum(packet);
+  enqueuePacket(packet);
+}
+
+void sendMeterHeartbeats() {
+  const uint32_t now = millis();
+  for (auto &meter : meters) {
+    if (!meter.map.enabled || now - meter.lastHeartbeatMs < METER_HEARTBEAT_INTERVAL_MS) continue;
+    meter.lastHeartbeatMs = now;
+    queueHeartbeat(meter);
+  }
 }
 
 void notifyCallback(NimBLERemoteCharacteristic *characteristic, uint8_t *data,
@@ -246,7 +361,7 @@ class ClientCallbacks final : public NimBLEClientCallbacks {
 
   void onConnectFail(NimBLEClient *client, int reason) override {
     MeterRuntime *meter = runtimeForClient(client);
-    if (meter) meter->connecting = false;
+    if (meter) scheduleReconnect(*meter, "connect-failed");
     Serial.printf("[BLE] connect failed peer=%s reason=%d\n",
                   client->getPeerAddress().toString().c_str(), reason);
   }
@@ -254,10 +369,8 @@ class ClientCallbacks final : public NimBLEClientCallbacks {
   void onDisconnect(NimBLEClient *client, int reason) override {
     MeterRuntime *meter = runtimeForClient(client);
     if (meter) {
-      meter->connected = false;
-      meter->connecting = false;
-      meter->dataCharacteristic = nullptr;
       Serial.printf("[BLE] meter=%u disconnected reason=%d\n", meter->map.meterId, reason);
+      scheduleReconnect(*meter, "disconnected");
     }
   }
 };
@@ -276,6 +389,7 @@ class ScanCallbacks final : public NimBLEScanCallbacks {
     if (candidateSlot >= 0) return;
     for (uint8_t i = 0; i < MAX_METERS_PER_NODE; ++i) {
       if (!meters[i].map.enabled || meters[i].connected || meters[i].connecting) continue;
+      if (static_cast<int32_t>(millis() - meters[i].nextReconnectMs) < 0) continue;
       if (address.equalsIgnoreCase(meters[i].map.mac)) {
         meters[i].connecting = true;
         candidateSlot = static_cast<int8_t>(i);
@@ -305,7 +419,7 @@ bool connectCandidate(uint8_t slot, const NimBLEAdvertisedDevice *device) {
     meter.client = NimBLEDevice::createClient();
     if (!meter.client) {
       Serial.println("[BLE] createClient failed: connection limit reached");
-      meter.connecting = false;
+      scheduleReconnect(meter, "client-limit");
       return false;
     }
     meter.client->setClientCallbacks(&clientCallbacks, false);
@@ -316,7 +430,7 @@ bool connectCandidate(uint8_t slot, const NimBLEAdvertisedDevice *device) {
 
   if (!meter.client->connect(device, true, false, true)) {
     Serial.printf("[BLE] meter=%u connection failed\n", meter.map.meterId);
-    meter.connecting = false;
+    if (meter.connecting) scheduleReconnect(meter, "connect-returned-false");
     NimBLEDevice::deleteClient(meter.client);
     meter.client = nullptr;
     return false;
@@ -343,9 +457,21 @@ bool connectCandidate(uint8_t slot, const NimBLEAdvertisedDevice *device) {
     return false;
   }
 
+  meter.controlCharacteristic = service->getCharacteristic(NUS_RX_UUID);
+  if (keepaliveMode != 0 && (!meter.controlCharacteristic ||
+      (!meter.controlCharacteristic->canWrite() && !meter.controlCharacteristic->canWriteNoResponse()))) {
+    Serial.printf("[KEEPALIVE] meter=%u NUS write characteristic unavailable; strategy disabled for this link\n",
+                  meter.map.meterId);
+    meter.controlCharacteristic = nullptr;
+  }
+
   meter.rssi = meter.client->getRssi();
   meter.connected = true;
   meter.connecting = false;
+  meter.reconnectAttempts = 0;
+  meter.nextReconnectMs = 0;
+  // Do not write immediately after connection; wait a full interval so startup remains observable.
+  meter.lastKeepaliveMs = millis();
   Serial.printf("[BLE] meter=%u ready rssi=%d connected=%u/%u\n", meter.map.meterId,
                 meter.rssi, connectedCount(), MAX_METERS_PER_NODE);
   return true;
@@ -366,8 +492,10 @@ void sendQueuedPackets() {
   while (dequeuePacket(packet)) {
     const esp_err_t result = esp_now_send(kBroadcastAddress,
                                           reinterpret_cast<const uint8_t *>(&packet), sizeof(packet));
-    Serial.printf("[ESPNOW] meter=%u seq=%lu value=%.4f result=%s\n", packet.meterId,
-                  static_cast<unsigned long>(packet.sequence), packet.value01Um / 10000.0,
+    Serial.printf("[ESPNOW] meter=%u seq=%lu type=%s connected=%s value=%.4f result=%s\n",
+                  packet.meterId, static_cast<unsigned long>(packet.sequence),
+                  (packet.flags & METER_HEARTBEAT) ? "heartbeat" : "measurement",
+                  (packet.flags & METER_BLE_CONNECTED) ? "yes" : "no", packet.value01Um / 10000.0,
                   result == ESP_OK ? "queued" : esp_err_to_name(result));
   }
 }
@@ -396,6 +524,9 @@ void printHelp() {
   Serial.println("[CMD] map clear <slot 1-5>");
   Serial.println("[CMD] node set <node_id 1-255>");
   Serial.println("[CMD] discover on|off   (only lists devices; whitelist still enforced)");
+  Serial.println("[CMD] keepalive show");
+  Serial.println("[CMD] keepalive set <mode 0-3> <seconds 30-600>");
+  Serial.println("[CMD] keepalive send   (one test write to every connected meter)");
   Serial.println("[CMD] reboot");
 }
 
@@ -408,6 +539,22 @@ void processCommand(String command) {
   }
   if (command.equalsIgnoreCase("map show")) {
     printConfiguration();
+    return;
+  }
+  if (command.equalsIgnoreCase("keepalive show")) {
+    Serial.printf("[KEEPALIVE] mode=%u name=%s interval_sec=%lu\n", keepaliveMode,
+                  keepaliveModeName(keepaliveMode),
+                  static_cast<unsigned long>(keepaliveIntervalMs / 1000UL));
+    return;
+  }
+  if (command.equalsIgnoreCase("keepalive send")) {
+    if (keepaliveMode == 0) {
+      Serial.println("[KEEPALIVE] mode is OFF; configure a mode first");
+      return;
+    }
+    uint8_t sent = 0;
+    for (auto &meter : meters) if (sendKeepalive(meter, true)) ++sent;
+    Serial.printf("[KEEPALIVE] manual writes successful=%u/%u\n", sent, connectedCount());
     return;
   }
   if (command.equalsIgnoreCase("discover on")) {
@@ -430,6 +577,24 @@ void processCommand(String command) {
   int slot = 0;
   int meterId = 0;
   char macText[24]{};
+  int requestedKeepaliveMode = 0;
+  int requestedKeepaliveSeconds = 0;
+  if (sscanf(command.c_str(), "keepalive set %d %d", &requestedKeepaliveMode,
+             &requestedKeepaliveSeconds) == 2) {
+    if (requestedKeepaliveMode < 0 || requestedKeepaliveMode > 3 ||
+        requestedKeepaliveSeconds < 30 || requestedKeepaliveSeconds > 600) {
+      Serial.println("[KEEPALIVE] invalid; mode=0..3 seconds=30..600");
+      return;
+    }
+    keepaliveMode = static_cast<uint8_t>(requestedKeepaliveMode);
+    keepaliveIntervalMs = static_cast<uint32_t>(requestedKeepaliveSeconds) * 1000UL;
+    preferences.putUChar("ka-mode", keepaliveMode);
+    preferences.putUInt("ka-sec", static_cast<uint32_t>(requestedKeepaliveSeconds));
+    for (auto &meter : meters) meter.lastKeepaliveMs = millis();
+    Serial.printf("[KEEPALIVE] saved mode=%u name=%s interval_sec=%d; active immediately\n",
+                  keepaliveMode, keepaliveModeName(keepaliveMode), requestedKeepaliveSeconds);
+    return;
+  }
   if (sscanf(command.c_str(), "map set %d %d %23s", &slot, &meterId, macText) == 3) {
     const String mac = normalizeMac(String(macText));
     if (slot < 1 || slot > MAX_METERS_PER_NODE || meterId < 1 || meterId > 20 || !validMac(mac)) {
@@ -504,6 +669,8 @@ void setup() {
 
 void loop() {
   processSerialCommands();
+  sendScheduledKeepalives();
+  sendMeterHeartbeats();
   sendQueuedPackets();
 
   if (candidateSlot >= 0) {
@@ -518,7 +685,12 @@ void loop() {
   if (millis() - lastStatusMs >= STATUS_INTERVAL_MS) {
     lastStatusMs = millis();
     for (auto &meter : meters) {
-      if (meter.connected && meter.client && meter.client->isConnected()) meter.rssi = meter.client->getRssi();
+      if (!meter.connected) continue;
+      if (meter.client && meter.client->isConnected()) {
+        meter.rssi = meter.client->getRssi();
+      } else {
+        scheduleReconnect(meter, "link-check-failed");
+      }
     }
     Serial.printf("[STATUS] node=%u connected=%u/%u heap=%u dropped=%lu%s\n", nodeId,
                   connectedCount(), MAX_METERS_PER_NODE, ESP.getFreeHeap(),

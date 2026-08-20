@@ -7,6 +7,9 @@ let lastRateTime = Date.now();
 let totalPackets = 0;
 let meterConfig = null;
 let serialPorts = [];
+let lastDataTime = 0;
+const systemStartedAt = Date.now();
+const overallHistory = [];
 
 const grid = document.querySelector('#meterGrid');
 const pad = n => String(n).padStart(2, '0');
@@ -16,12 +19,16 @@ for (let id = 1; id <= MAX_METERS; id++) {
   const card = document.createElement('article');
   card.className = 'meter-card';
   card.id = `meter-${id}`;
-  card.innerHTML = `<div class="card-head"><div class="meter-name"><span class="meter-index">${pad(id)}</span>百分表 ${pad(id)}</div><div class="state"><i></i><span>待机</span></div></div><div class="reading"><strong>--.----</strong><small>mm</small><span class="protocol-note"></span></div><canvas class="spark"></canvas><div class="card-foot"><span>NODE <b class="node">--</b></span><span>RSSI <b class="signal">--</b></span><span>SEQ <b class="seq">--</b></span></div>`;
+  card.innerHTML = `<div class="card-head"><div class="meter-name"><span class="meter-index">${pad(id)}</span>百分表 ${pad(id)}</div><div class="state"><i></i><span>待机</span></div></div><div class="card-main"><div class="gauge"><div class="reading"><strong>--.----</strong><small>mm</small></div></div><div class="spark-zone"><div class="measurement-label"><span>实时变形</span><b class="mini-value">--.----</b></div><canvas class="spark"></canvas><div class="updated-time">--:--:--</div><span class="protocol-note"></span></div></div><div class="card-foot"><span>BLE</span><span class="node">--</span><span class="signal">--</span><span class="seq-wrap">SEQ <b class="seq">--</b></span></div>`;
   grid.appendChild(card);
   histories.set(id, []);
 }
 
 function signalClass(rssi) { return rssi >= -65 ? 'good' : rssi >= -82 ? 'weak' : ''; }
+
+function formatTime(timestamp = Date.now()) {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', {hour12: false});
+}
 
 function drawSpark(id) {
   const card = document.querySelector(`#meter-${id}`);
@@ -35,13 +42,13 @@ function drawSpark(id) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, w, h);
-  ctx.strokeStyle = 'rgba(120,150,141,.13)';
-  ctx.beginPath(); ctx.moveTo(0, h - 1); ctx.lineTo(w, h - 1); ctx.stroke();
+  ctx.strokeStyle = 'rgba(25,126,197,.2)';
+  for (let y = 5; y < h; y += 16) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
   if (values.length < 2) return;
   let min = Math.min(...values), max = Math.max(...values);
   if (max - min < .002) { max += .001; min -= .001; }
   const grad = ctx.createLinearGradient(0, 0, w, 0);
-  grad.addColorStop(0, 'rgba(11,157,107,.25)'); grad.addColorStop(1, '#0b9d6b');
+  grad.addColorStop(0, 'rgba(20,122,229,.35)'); grad.addColorStop(1, '#20b6ff');
   ctx.strokeStyle = grad; ctx.lineWidth = 1.5; ctx.beginPath();
   values.forEach((v, i) => {
     const x = i / (values.length - 1) * w;
@@ -49,6 +56,38 @@ function drawSpark(id) {
     i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
   });
   ctx.stroke();
+}
+
+function drawOverallTrend() {
+  const canvas = document.querySelector('#overallTrend');
+  if (!canvas) return;
+  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(24,112,176,.2)'; ctx.lineWidth = 1;
+  for (let y = 12; y < h; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  for (let x = 0; x < w; x += w / 5) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  if (overallHistory.length < 2) return;
+  let min = Math.min(...overallHistory), max = Math.max(...overallHistory);
+  if (max - min < .001) { min -= .0005; max += .0005; }
+  const points = overallHistory.map((v, i) => [i / (overallHistory.length - 1) * w, h - 10 - (v - min) / (max - min) * (h - 20)]);
+  const fill = ctx.createLinearGradient(0, 0, 0, h); fill.addColorStop(0, 'rgba(17,157,255,.32)'); fill.addColorStop(1, 'rgba(17,157,255,0)');
+  ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.strokeStyle = '#1cb1ff'; ctx.lineWidth = 2; ctx.shadowColor = '#168dff'; ctx.shadowBlur = 7; ctx.stroke();
+  const [lx,ly] = points.at(-1); ctx.beginPath(); ctx.arc(lx,ly,4,0,Math.PI*2); ctx.fillStyle='#d6f4ff'; ctx.fill();
+}
+
+function refreshStatistics(pushTrend = false) {
+  const validValues = [...meters.values()].filter(d => d.valid && Number.isFinite(Number(d.value_mm))).map(d => Number(d.value_mm));
+  const set = (id, value) => { const el = document.querySelector(`#${id}`); if (el) el.textContent = value; };
+  if (!validValues.length) {
+    ['maxValue','minValue','avgValue','rangeValue'].forEach(id => set(id, '--.----'));
+    return;
+  }
+  const max = Math.max(...validValues), min = Math.min(...validValues), avg = validValues.reduce((a,b)=>a+b,0)/validValues.length;
+  set('maxValue', max.toFixed(4)); set('minValue', min.toFixed(4)); set('avgValue', avg.toFixed(4)); set('rangeValue', (max-min).toFixed(4));
+  if (pushTrend) { overallHistory.push(avg); if (overallHistory.length > 60) overallHistory.shift(); drawOverallTrend(); }
 }
 
 function renderMeter(data) {
@@ -69,16 +108,23 @@ function renderMeter(data) {
   card.querySelector('.reading small').textContent = data.unit || 'mm';
   const note = card.querySelector('.protocol-note');
   if (data.valid) {
-    card.querySelector('.reading strong').textContent = Number(data.value_mm).toFixed(4);
+    const value = Number(data.value_mm);
+    card.querySelector('.reading strong').textContent = value.toFixed(4);
+    card.querySelector('.mini-value').textContent = value.toFixed(4);
+    card.querySelector('.gauge').style.setProperty('--gauge-angle', `${Math.min(270, 35 + Math.abs(value) * 80)}deg`);
+    card.querySelector('.updated-time').textContent = formatTime(data.measurement_timestamp_ms || data.timestamp_ms || Date.now());
     note.textContent = online ? (data.heartbeat && !data.measurement_timestamp_ms ? '已连接 · 等待读数' : '') : '蓝牙断开 · 自动重连中';
     if (!data.heartbeat) {
       const list = histories.get(id);
       list.push(Number(data.value_mm));
       if (list.length > 50) list.shift();
       drawSpark(id);
+      lastDataTime = Date.now();
+      refreshStatistics(true);
     }
   } else {
     card.querySelector('.reading strong').textContent = '--.----';
+    card.querySelector('.mini-value').textContent = '--.----';
     note.textContent = !nodeAlive ? '从站心跳超时' : !online ? '蓝牙断开 · 自动重连中' : data.raw_hex ? '已收到原始数据 · 待解析协议' : '已连接 · 等待读数';
   }
   card.classList.remove('pulse');
@@ -86,7 +132,7 @@ function renderMeter(data) {
 }
 
 function refreshOnline() {
-  let online = 0;
+  let online = 0, reconnecting = 0, offline = 0;
   for (const [id, data] of meters) {
     const nodeAlive = Date.now() - data.timestamp_ms < 6000;
     const isOnline = nodeAlive && data.ble_connected !== false;
@@ -95,14 +141,32 @@ function refreshOnline() {
     card.classList.toggle('reconnecting', nodeAlive && !isOnline);
     card.querySelector('.state span').textContent = isOnline ? '表在线' : nodeAlive ? '表断开 · 重连' : '从站离线';
     if (isOnline) online++;
+    else if (nodeAlive) reconnecting++;
+    else offline++;
   }
+  offline += MAX_METERS - meters.size;
   document.querySelector('#onlineCount').textContent = online;
+  document.querySelector('#deviceOnlineCount').textContent = online;
+  document.querySelector('#normalCount').textContent = online;
+  document.querySelector('#reconnectCount').textContent = reconnecting;
+  document.querySelector('#offlineCount').textContent = offline;
+  document.querySelector('#idleCount').textContent = Math.max(0, MAX_METERS - online - reconnecting - offline);
+  document.querySelector('#statusDonut').style.setProperty('--online-angle', `${online / MAX_METERS * 360}deg`);
+  applyDeviceFilter();
 }
 
 function setGateway(ok, text) {
   document.querySelector('#gatewayDot').classList.toggle('online', ok);
   document.querySelector('#gatewayText').textContent = text;
   document.querySelector('#footerStatus').textContent = text;
+}
+
+function applyDeviceFilter() {
+  const filter = document.querySelector('#deviceFilter')?.value || 'all';
+  document.querySelectorAll('.meter-card').forEach(card => {
+    const matches = filter === 'all' || (filter === 'online' && card.classList.contains('online')) || (filter === 'alarm' && !card.classList.contains('online'));
+    card.classList.toggle('filtered', !matches);
+  });
 }
 
 function connect() {
@@ -119,6 +183,8 @@ function connect() {
       renderMeter(msg.data); totalPackets++;
     }
     document.querySelector('#packetCount').textContent = totalPackets.toLocaleString();
+    document.querySelector('#lastUpdate').textContent = formatTime();
+    refreshStatistics(false);
   };
   socket.onclose = () => { setGateway(false, '连接中断 · 重试中'); setTimeout(connect, 1800); };
   socket.onerror = () => socket.close();
@@ -355,6 +421,21 @@ document.querySelectorAll('.view-tab').forEach(button => button.addEventListener
 document.querySelector('#scanButton').addEventListener('click', scanBle);
 document.querySelector('#saveButton').addEventListener('click', saveConfig);
 document.querySelector('#clearLog').addEventListener('click', () => { document.querySelector('#operationLog').textContent = '等待操作……'; });
+document.querySelector('#deviceFilter').addEventListener('change', applyDeviceFilter);
+document.querySelector('#fullscreenButton').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+document.querySelector('#exportButton').addEventListener('click', () => {
+  const rows = [['表号','从站','变形量(mm)','蓝牙状态','RSSI(dBm)','序号','导出时间']];
+  for (let id = 1; id <= MAX_METERS; id++) {
+    const data = meters.get(id) || {};
+    rows.push([id,data.node_id || '',data.valid ? Number(data.value_mm).toFixed(4) : '',data.ble_connected ? '在线' : '断开',data.ble_rssi || '',data.sequence || '',formatTime()]);
+  }
+  const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n');
+  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  link.download = `水压试验变形数据_${new Date().toISOString().slice(0,10)}.csv`; link.click(); URL.revokeObjectURL(link.href);
+});
 
 setInterval(() => {
   const now = Date.now();
@@ -363,9 +444,16 @@ setInterval(() => {
   document.querySelector('#packetRate').textContent = Math.max(0, rate).toFixed(1);
   lastPacketCount = totalPackets; lastRateTime = now;
   refreshOnline();
-  document.querySelector('#clock').textContent = new Date().toLocaleTimeString('zh-CN', {hour12: false});
+  const date = new Date();
+  document.querySelector('#clock').textContent = date.toLocaleTimeString('zh-CN', {hour12: false});
+  document.querySelector('#headerDate').textContent = date.toLocaleDateString('zh-CN').replaceAll('/','-');
+  const elapsed = Math.max(0, Date.now() - systemStartedAt);
+  const days = Math.floor(elapsed / 86400000), hours = Math.floor(elapsed / 3600000) % 24, minutes = Math.floor(elapsed / 60000) % 60;
+  document.querySelector('#systemUptime').textContent = `${days}天 ${pad(hours)}时 ${pad(minutes)}分`;
 }, 1000);
 
-window.addEventListener('resize', () => histories.forEach((_, id) => drawSpark(id)));
+window.addEventListener('resize', () => { histories.forEach((_, id) => drawSpark(id)); drawOverallTrend(); });
+refreshOnline();
+drawOverallTrend();
 connect();
 loadConfiguration();

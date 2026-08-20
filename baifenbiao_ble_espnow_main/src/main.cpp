@@ -66,6 +66,7 @@ void printHexCompact(const uint8_t *data, size_t length) {
 }
 
 const char *sourceName(uint8_t flags) {
+  if (flags & METER_HEARTBEAT) return "heartbeat";
   if (flags & METER_FROM_HID) return "hid";
   if (flags & METER_FROM_NOTIFY) return "notify";
   if (flags & METER_FROM_READ) return "read";
@@ -90,6 +91,10 @@ void outputPacket(const ReceivedPacket &received) {
   Serial.print(packet.uptimeMs);
   Serial.print(",\"valid\":");
   Serial.print((packet.flags & METER_VALID) ? "true" : "false");
+  Serial.print(",\"heartbeat\":");
+  Serial.print((packet.flags & METER_HEARTBEAT) ? "true" : "false");
+  Serial.print(",\"ble_connected\":");
+  Serial.print((packet.flags & METER_BLE_CONNECTED) ? "true" : "false");
   Serial.print(",\"value_mm\":");
   Serial.print(packet.value01Um / 10000.0, 4);
   Serial.print(",\"unit\":\"");

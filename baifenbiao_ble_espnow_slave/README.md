@@ -11,6 +11,9 @@ map clear <槽位1-5>
 node set <节点号1-255>
 discover on
 discover off
+keepalive show
+keepalive set <mode 0-3> <秒数30-600>
+keepalive send
 reboot
 ```
 
@@ -25,6 +28,25 @@ reboot
 ```
 
 映射保存在 NVS。普通重新烧录不会清除映射；只有擦除 Flash/NVS 后才会恢复 `include/config.h` 中的首次启动默认值。
+
+## 百分表防关机实验
+
+从站会取得 NUS RX 写入特征 `6E400002...`，可按节点定时向已连接的5块表写入测试字节。策略同样保存在 NVS：
+
+| mode | 写入字节 | 用途 |
+|---:|---|---|
+| 0 | 不写入 | 对照组 |
+| 1 | `0D 0A` | 空行/CRLF |
+| 2 | `3F 0D 0A` | `?` 查询行 |
+| 3 | `00` | NUL 字节 |
+
+推荐4节点分别设置为0、1、2、3，间隔90秒。定时写入不会在刚连接时立即触发，而是等待一个完整间隔。串口输出示例：
+
+```text
+[KEEPALIVE] meter=6 mode=1 payload=0D 0A write=ok response=yes trigger=timer
+```
+
+`write=ok` 只代表 BLE GATT 写入成功，不代表百分表一定将该字节识别为保活。实验期间应记录每组实际关机时间，并观察是否出现清零、单位切换等副作用。执行 `keepalive set 0 90` 可立即停止定时写入。
 
 ## 推荐：使用 JSON 批量配置
 

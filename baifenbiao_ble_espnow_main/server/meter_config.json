@@ -4,6 +4,8 @@
     {
       "node_id": 1,
       "port": "COM34",
+      "keepalive_mode": 0,
+      "keepalive_seconds": 90,
       "meters": [
         {
           "slot": 1,
@@ -39,7 +41,9 @@
     },
     {
       "node_id": 2,
-      "port": "COM35",
+      "port": "COM38",
+      "keepalive_mode": 1,
+      "keepalive_seconds": 30,
       "meters": [
         {
           "slot": 1,
@@ -76,6 +80,8 @@
     {
       "node_id": 3,
       "port": "COM36",
+      "keepalive_mode": 2,
+      "keepalive_seconds": 90,
       "meters": [
         {
           "slot": 1,
@@ -112,6 +118,8 @@
     {
       "node_id": 4,
       "port": "COM37",
+      "keepalive_mode": 3,
+      "keepalive_seconds": 30,
       "meters": [
         {
           "slot": 1,

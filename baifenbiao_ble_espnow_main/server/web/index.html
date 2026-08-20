@@ -3,81 +3,59 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>精密测量 · 百分表监控</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260819-keepalive2">
+  <title>水压试验变形监测系统</title>
+  <link rel="stylesheet" href="/assets/styles.css?v=20260820-hydro1">
 </head>
 <body>
-  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
+  <div class="screen-grid" aria-hidden="true"></div>
   <main class="shell">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true"><span></span><span></span><i></i></div>
-        <div><p>PRECISION GRID</p><h1>百分表实时监控</h1></div>
-      </div>
-      <nav class="view-tabs" aria-label="页面切换">
-        <button class="view-tab active" data-view="monitor">实时监控</button>
-        <button class="view-tab" data-view="config">设备配置</button>
-      </nav>
-      <div class="gateway-pill"><i id="gatewayDot"></i><span id="gatewayText">正在连接网关</span><b id="clock">--:--:--</b></div>
+      <div class="system-state"><span class="system-icon">⌂</span><span>系统状态</span><strong><i id="gatewayDot"></i><span id="gatewayText">正在连接网关</span></strong></div>
+      <div class="title-frame"><span class="title-wing left"></span><div><h1>水压试验变形监测系统</h1><p>HYDROSTATIC TEST DEFORMATION MONITORING</p></div><span class="title-wing right"></span></div>
+      <div class="top-tools"><time><span id="headerDate">----/--/--</span><b id="clock">--:--:--</b></time><button class="icon-button" id="fullscreenButton" title="全屏显示">⛶</button></div>
     </header>
+    <nav class="view-tabs" aria-label="页面切换"><button class="view-tab active" data-view="monitor">监测总览</button><button class="view-tab" data-view="config">设备配置</button></nav>
 
     <div id="monitorView" class="view active">
-    <section class="overview">
-      <div class="hero-copy">
-        <span class="eyebrow">MEASUREMENT CONTROL CENTER</span>
-        <h2>20 路精密位移<br><em>一屏掌握</em></h2>
-        <p>BLE 采集 · ESP-NOW 汇聚 · 串口实时上云</p>
+      <div class="dashboard-frame">
+        <aside class="sidebar">
+          <section class="side-panel overview-panel">
+            <div class="panel-title"><i></i><h2>系统概览</h2></div>
+            <div class="overview-body">
+              <div class="donut" id="statusDonut"><div><strong id="onlineCount">0</strong><span>设备在线</span></div></div>
+              <div class="status-legend">
+                <p><i class="normal"></i><span>正常测量</span><b id="normalCount">0</b></p><p><i class="warning"></i><span>蓝牙重连</span><b id="reconnectCount">0</b></p><p><i class="offline"></i><span>从站离线</span><b id="offlineCount">20</b></p><p><i class="idle"></i><span>待配置</span><b id="idleCount">0</b></p>
+              </div>
+            </div>
+          </section>
+          <section class="side-panel statistics-panel">
+            <div class="panel-title"><i></i><h2>实时数据统计</h2></div>
+            <div class="stat-grid"><article><strong id="maxValue">--.----</strong><span>最大变形量 (mm)</span><em>↑</em></article><article><strong id="minValue">--.----</strong><span>最小变形量 (mm)</span><em class="down">↓</em></article><article><strong id="avgValue">--.----</strong><span>平均变形量 (mm)</span><em>⌁</em></article><article><strong id="rangeValue">--.----</strong><span>变形极差 (mm)</span><em>⌁</em></article></div>
+          </section>
+          <section class="side-panel trend-panel">
+            <div class="panel-title trend-title"><i></i><h2>整体变形趋势</h2><span>最近 5 分钟⌄</span></div><div class="trend-unit">单位：mm</div><canvas id="overallTrend"></canvas><div class="trend-times"><span>-5m</span><span>-4m</span><span>-3m</span><span>-2m</span><span>-1m</span><span>当前</span></div>
+          </section>
+          <section class="side-panel information-panel">
+            <div class="panel-title"><i></i><h2>系统信息</h2></div>
+            <dl><div><dt>系统版本</dt><dd>V2.2.0</dd></div><div><dt>采集频率</dt><dd><b id="packetRate">0.0</b> Hz</dd></div><div><dt>通讯模式</dt><dd>ESP-NOW + BLE</dd></div><div><dt>累计数据</dt><dd><b id="packetCount">0</b> 帧</dd></div><div><dt>数据更新时间</dt><dd id="lastUpdate">--:--:--</dd></div><div><dt>系统运行时长</dt><dd id="systemUptime">0天 00时 00分</dd></div></dl>
+          </section>
+        </aside>
+        <section class="device-panel">
+          <div class="device-toolbar"><div><i></i><h2>变形监测 <span>（<b id="deviceOnlineCount">0</b>/20）</span></h2></div><div class="toolbar-actions"><button class="layout-button active" aria-label="卡片布局">▦</button><button class="layout-button" aria-label="列表布局">☷</button><select id="deviceFilter" aria-label="设备筛选"><option value="all">全部设备</option><option value="online">在线设备</option><option value="alarm">断开设备</option></select><button class="export-button" id="exportButton">⇩ 导出数据</button></div></div>
+          <section id="meterGrid" class="meter-grid" aria-live="polite"></section>
+        </section>
       </div>
-      <div class="metrics">
-        <article><span>在线仪表</span><strong id="onlineCount">0</strong><small>/ 20</small></article>
-        <article><span>累计数据</span><strong id="packetCount">0</strong><small>帧</small></article>
-        <article><span>当前速率</span><strong id="packetRate">0.0</strong><small>Hz</small></article>
-      </div>
-    </section>
-
-    <section class="section-head">
-      <div><span>LIVE CHANNELS</span><h3>测量通道</h3></div>
-      <div class="legend"><i class="live"></i>百分表蓝牙在线 <i class="waiting"></i>表断开 / 从站离线</div>
-    </section>
-    <section id="meterGrid" class="meter-grid" aria-live="polite"></section>
     </div>
 
     <div id="configView" class="view">
-      <section class="config-hero">
-        <div>
-          <span class="eyebrow">DEVICE PROVISIONING</span>
-          <h2>蓝牙发现与从站配置</h2>
-          <p>打开百分表电源后扫描，分配到指定从站槽位，再写入对应 ESP32-C3。</p>
-        </div>
-        <div class="config-actions">
-          <button id="scanButton" class="primary-button">扫描附近百分表</button>
-          <button id="saveButton" class="secondary-button">保存全部映射</button>
-        </div>
-      </section>
-
-      <section class="scan-panel panel">
-        <div class="panel-head">
-          <div><span>BLUETOOTH SCANNER</span><h3>扫描结果</h3></div>
-          <div id="scanStatus" class="soft-status">尚未扫描</div>
-        </div>
-        <div class="scan-tip">提示：正在被从站连接的表不会广播。批量登记时，可先关闭从站或执行 <code>discover off</code>，然后开启全部百分表。</div>
-        <div id="scanResults" class="scan-results empty-state">点击“扫描附近百分表”开始发现设备</div>
-      </section>
-
-      <section class="mapping-head">
-        <div><span>METER ASSIGNMENT</span><h3>4 台从站 · 20 路表号映射</h3></div>
-        <div id="configStatus" class="soft-status">配置已载入</div>
-      </section>
+      <section class="config-hero panel"><div><span class="eyebrow">DEVICE PROVISIONING</span><h2>蓝牙发现与从站配置</h2><p>扫描百分表、分配到指定从站槽位，并写入对应 ESP32-C3。</p></div><div class="config-actions"><button id="scanButton" class="primary-button">扫描附近百分表</button><button id="saveButton" class="secondary-button">保存全部映射</button></div></section>
+      <section class="scan-panel panel"><div class="panel-head"><div><span>BLUETOOTH SCANNER</span><h3>扫描结果</h3></div><div id="scanStatus" class="soft-status">尚未扫描</div></div><div class="scan-tip">提示：正在被从站连接的表不会广播。批量登记时，可先关闭从站或执行 <code>discover off</code>，然后开启全部百分表。</div><div id="scanResults" class="scan-results empty-state">点击“扫描附近百分表”开始发现设备</div></section>
+      <section class="mapping-head"><div><span>METER ASSIGNMENT</span><h3>4 台从站 · 20 路表号映射</h3></div><div id="configStatus" class="soft-status">配置已载入</div></section>
       <section id="nodeGrid" class="node-grid"></section>
-
-      <section class="operation-panel panel">
-        <div class="panel-head"><div><span>OPERATION LOG</span><h3>配置日志</h3></div><button id="clearLog" class="text-button">清空</button></div>
-        <pre id="operationLog">等待操作……</pre>
-      </section>
+      <section class="operation-panel panel"><div class="panel-head"><div><span>OPERATION LOG</span><h3>配置日志</h3></div><button id="clearLog" class="text-button">清空</button></div><pre id="operationLog">等待操作……</pre></section>
     </div>
-
-    <footer><span>ESP32-C3 DISTRIBUTED MEASUREMENT SYSTEM</span><span id="footerStatus">等待数据</span></footer>
+    <footer><span>安全监测</span><i></i><span>精准采集</span><i></i><span>实时预警</span><i></i><span>保障安全</span><b id="footerStatus">等待数据</b></footer>
   </main>
-  <script src="/assets/app.js?v=20260819-keepalive2"></script>
+  <script src="/assets/app.js?v=20260820-hydro1"></script>
 </body>
 </html>

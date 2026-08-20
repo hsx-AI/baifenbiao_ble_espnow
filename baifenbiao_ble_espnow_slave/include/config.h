@@ -9,6 +9,9 @@ constexpr uint8_t ESPNOW_WIFI_CHANNEL = 1;
 constexpr uint32_t BLE_SCAN_TIME_MS = 10000;
 constexpr uint32_t BLE_RESCAN_DELAY_MS = 1200;
 constexpr uint32_t STATUS_INTERVAL_MS = 2000;
+constexpr uint32_t METER_HEARTBEAT_INTERVAL_MS = 2000;
+constexpr uint32_t RECONNECT_MIN_DELAY_MS = 1000;
+constexpr uint32_t RECONNECT_MAX_DELAY_MS = 30000;
 
 // 当前样机的首次启动默认映射。NVS 初始化后，后续使用串口命令修改。
 // 新复制的从站请逐台执行 map clear 1，再写入各自的 5 块表。
