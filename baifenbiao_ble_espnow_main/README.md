@@ -58,7 +58,30 @@ python -m pip install -r requirements.txt
 
 主站串口中，`DATA ` 开头的是供服务端解析的 JSON，`#` 开头的是调试信息。串口输入 `stats` 可查看收包统计，输入 `reboot` 可重启主站。
 
-## Ubuntu 部署
+## 离线 U 盘一键部署（现场无公网服务器）
+
+完整说明见 `server/deploy/README.md`。
+
+**有网准备机（只需一次）：**
+
+```powershell
+cd server\deploy
+.\prepare_offline_windows.ps1
+```
+
+```bash
+cd server/deploy && chmod +x prepare_offline_ubuntu.sh && ./prepare_offline_ubuntu.sh
+```
+
+将整个 `server` 目录复制到 U 盘。
+
+**现场 Windows：** 双击 `server\deploy\一键部署_Windows.bat`（管理员）
+
+**现场 Ubuntu 24.04：** `sudo ./server/deploy/一键部署_Ubuntu.sh`
+
+安装后访问 `http://服务器IP:8000`，Windows 服务名 `PercentMeter`，Ubuntu systemd 服务名 `percent-meter`。
+
+## Ubuntu 部署（手动）
 
 Windows 的 `start_server.ps1` 不能在 Ubuntu 上使用；服务端代码、网页、蓝牙扫描和从站串口配置均支持 Linux。首次安装：
 

@@ -1,0 +1,7 @@
+# 离线部署大包（wheels / debs / python-embed / nssm）不纳入 git
+wheels/
+debs/
+python-embed/
+nssm/
+get-pip.py
+_prepare_tmp/
