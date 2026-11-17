@@ -16,8 +16,11 @@ import serial
 from bleak import BleakScanner
 from serial.tools import list_ports
 from fastapi import Body, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+from excel_export import build_history_workbook
+from history_store import fetch_history, history_stats, init_db, save_minute_snapshot
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -27,6 +30,7 @@ MAX_METERS = 20
 BAUD_RATE = int(os.getenv("SERIAL_BAUD", "115200"))
 REQUESTED_PORT = os.getenv("SERIAL_PORT", "").strip()
 SIMULATE = os.getenv("SIMULATE", "0").lower() in {"1", "true", "yes", "on"}
+HISTORY_INTERVAL_S = max(30, int(os.getenv("HISTORY_INTERVAL_S", "60")))
 MAC_PATTERN = re.compile(r"^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$")
 NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 
@@ -45,6 +49,9 @@ class GatewayState:
         self.stop_event = threading.Event()
         self.serial_thread: threading.Thread | None = None
         self.simulator_task: asyncio.Task[None] | None = None
+        self.history_task: asyncio.Task[None] | None = None
+        self.requested_port = REQUESTED_PORT
+        self.serial_reconnect = threading.Event()
 
     def status(self) -> dict[str, Any]:
         now = time.time()
@@ -56,6 +63,7 @@ class GatewayState:
             "serial_connected": self.serial_connected,
             "serial_port": self.serial_port,
             "serial_error": self.serial_error,
+            "requested_port": self.requested_port or None,
             "baud_rate": BAUD_RATE,
             "simulate": SIMULATE,
             "online_meters": online,
@@ -251,8 +259,9 @@ def configure_slave_serial(port: str, node: dict[str, Any]) -> list[str]:
 
 
 def candidate_ports() -> list[str]:
-    if REQUESTED_PORT:
-        return [REQUESTED_PORT]
+    requested = (state.requested_port or "").strip()
+    if requested:
+        return [requested]
     ports = list(list_ports.comports())
     preferred = [
         port.device
@@ -265,16 +274,26 @@ def candidate_ports() -> list[str]:
 
 def serial_worker() -> None:
     while not state.stop_event.is_set():
+        if state.serial_reconnect.is_set():
+            state.serial_reconnect.clear()
         ports = candidate_ports()
         if not ports:
             state.serial_connected = False
-            state.serial_error = "未发现串口；请连接主站或设置 SERIAL_PORT"
-            state.stop_event.wait(2.0)
+            state.serial_error = "未发现串口；请连接主站或在网页选择串口"
+            for _ in range(20):
+                if state.stop_event.is_set():
+                    return
+                if state.serial_reconnect.is_set():
+                    state.serial_reconnect.clear()
+                    break
+                time.sleep(0.1)
             continue
         opened = False
         for port_name in ports:
             if state.stop_event.is_set():
                 return
+            if state.serial_reconnect.is_set():
+                break
             try:
                 with serial.Serial(port_name, BAUD_RATE, timeout=0.5) as connection:
                     opened = True
@@ -283,6 +302,10 @@ def serial_worker() -> None:
                     state.serial_error = None
                     print(f"[serial] connected: {port_name} @ {BAUD_RATE}", flush=True)
                     while not state.stop_event.is_set():
+                        if state.serial_reconnect.is_set():
+                            state.serial_reconnect.clear()
+                            print(f"[serial] reconnect requested, leaving {port_name}", flush=True)
+                            break
                         raw = connection.readline()
                         if not raw:
                             continue
@@ -303,7 +326,7 @@ def serial_worker() -> None:
             finally:
                 state.serial_connected = False
                 state.serial_port = None
-        if not opened:
+        if not opened and not state.serial_reconnect.is_set():
             state.stop_event.wait(2.0)
 
 
@@ -313,30 +336,53 @@ async def simulator() -> None:
     while not state.stop_event.is_set():
         sequence += 1
         elapsed = time.monotonic() - started
-        value = 12.345 + math.sin(elapsed * 0.8) * 0.075 + random.uniform(-0.003, 0.003)
-        state.accept_payload(
-            {
-                "node_id": 1,
-                "meter_id": 1,
-                "sequence": sequence,
-                "valid": True,
-                "heartbeat": False,
-                "ble_connected": True,
-                "value_mm": round(value, 4),
-                "unit": "mm",
-                "source": "simulation",
-                "ble_rssi": -48 + random.randint(-3, 3),
-                "sender_mac": "02:00:00:00:00:01",
-                "raw_hex": f"{int(value * 1000):08x}",
-            }
-        )
-        await asyncio.sleep(0.2)
+        for meter_id in range(1, MAX_METERS + 1):
+            phase = meter_id * 0.37
+            value = (
+                10.0
+                + meter_id * 0.12
+                + math.sin(elapsed * 0.25 + phase) * 0.08
+                + random.uniform(-0.002, 0.002)
+            )
+            state.accept_payload(
+                {
+                    "node_id": (meter_id - 1) // 5 + 1,
+                    "meter_id": meter_id,
+                    "sequence": sequence,
+                    "valid": True,
+                    "heartbeat": False,
+                    "ble_connected": True,
+                    "value_mm": round(value, 4),
+                    "unit": "mm",
+                    "source": "simulation",
+                    "ble_rssi": -48 + random.randint(-3, 3),
+                    "sender_mac": f"02:00:00:00:00:{meter_id:02x}",
+                    "raw_hex": f"{int(value * 1000):08x}",
+                }
+            )
+        await asyncio.sleep(0.5)
 
+
+async def history_recorder() -> None:
+    """Persist a minute snapshot; skip quietly when no valid meter data exists."""
+    while not state.stop_event.is_set():
+        try:
+            saved = await asyncio.to_thread(save_minute_snapshot, dict(state.meters))
+            if saved:
+                print(f"[history] saved {saved} meter sample(s)", flush=True)
+        except Exception as exc:
+            print(f"[history] save failed: {exc}", flush=True)
+        for _ in range(HISTORY_INTERVAL_S):
+            if state.stop_event.is_set():
+                return
+            await asyncio.sleep(1)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     state.loop = asyncio.get_running_loop()
     state.stop_event.clear()
+    init_db()
+    state.history_task = asyncio.create_task(history_recorder())
     if SIMULATE:
         state.simulator_task = asyncio.create_task(simulator())
         print("[server] simulation mode enabled", flush=True)
@@ -345,6 +391,8 @@ async def lifespan(_: FastAPI):
         state.serial_thread.start()
     yield
     state.stop_event.set()
+    if state.history_task:
+        state.history_task.cancel()
     if state.simulator_task:
         state.simulator_task.cancel()
     if state.serial_thread:
@@ -370,6 +418,26 @@ async def get_meters() -> dict[str, Any]:
     return {"meters": list(state.meters.values()), "max_meters": MAX_METERS}
 
 
+@app.get("/api/history/stats")
+async def get_history_stats(hours: float = 24.0) -> dict[str, Any]:
+    hours = max(1.0, min(hours, 168.0))
+    return history_stats(hours)
+
+
+@app.get("/api/export/history.xlsx")
+async def export_history_xlsx(hours: float = 24.0) -> Response:
+    hours = max(1.0, min(hours, 168.0))
+    history = await asyncio.to_thread(fetch_history, hours)
+    content = await asyncio.to_thread(build_history_workbook, history, hours=hours, max_meters=MAX_METERS)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"percent_meter_history_{int(hours)}h_{stamp}.xlsx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/serial/ports")
 async def get_serial_ports() -> dict[str, Any]:
     return {
@@ -378,6 +446,30 @@ async def get_serial_ports() -> dict[str, Any]:
             for port in list_ports.comports()
         ],
         "gateway_port": state.serial_port,
+        "requested_port": state.requested_port or None,
+        "simulate": SIMULATE,
+    }
+
+
+@app.put("/api/serial/gateway")
+async def set_gateway_serial(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    if SIMULATE:
+        raise HTTPException(status_code=400, detail="演示模式下无需选择主站串口")
+    requested = str(payload.get("port") or "").strip()
+    if requested:
+        available = {port_key(item.device): item.device for item in list_ports.comports()}
+        resolved = available.get(port_key(requested))
+        if resolved is None:
+            raise HTTPException(status_code=404, detail=f"未找到串口 {requested}")
+        state.requested_port = resolved
+    else:
+        state.requested_port = ""
+    state.serial_reconnect.set()
+    return {
+        "ok": True,
+        "requested_port": state.requested_port or None,
+        "gateway_port": state.serial_port,
+        "message": f"已切换主站串口为 {state.requested_port}" if state.requested_port else "已改为自动扫描主站串口",
     }
 
 

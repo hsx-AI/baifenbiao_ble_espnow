@@ -1,0 +1,57 @@
+Date : 2026-08-28 13:30:31
+Directory : e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server
+Total : 18 files,  1645 codes, 33 comments, 221 blanks, all 1899 lines
+
+Languages
++------------------+------------+------------+------------+------------+------------+
+| language         | files      | code       | comment    | blank      | total      |
++------------------+------------+------------+------------+------------+------------+
+| JavaScript       |          1 |        429 |          0 |         31 |        460 |
+| Python           |          1 |        407 |          0 |         57 |        464 |
+| PowerShell       |          4 |        276 |         18 |         46 |        340 |
+| Shell Script     |          5 |        207 |         10 |         46 |        263 |
+| JSON             |          1 |        157 |          0 |          0 |        157 |
+| Markdown         |          1 |         69 |          0 |         28 |         97 |
+| HTML             |          1 |         59 |          0 |          3 |         62 |
+| Batch            |          1 |         23 |          0 |          5 |         28 |
+| CSS              |          1 |         10 |          1 |          1 |         12 |
+| pip requirements |          1 |          4 |          0 |          1 |          5 |
+| Codex Rules      |          1 |          4 |          4 |          3 |         11 |
++------------------+------------+------------+------------+------------+------------+
+
+Directories
++--------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                                                     | files      | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                                                        |         18 |      1,645 |         33 |        221 |      1,899 |
+| . (Files)                                                                                                                |          5 |        606 |          1 |         68 |        675 |
+| deploy                                                                                                                   |         10 |        541 |         31 |        118 |        690 |
+| deploy (Files)                                                                                                           |          9 |        537 |         27 |        115 |        679 |
+| deploy\udev                                                                                                              |          1 |          4 |          4 |          3 |         11 |
+| web                                                                                                                      |          3 |        498 |          1 |         35 |        534 |
++--------------------------------------------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++--------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| filename                                                                                                                 | language         | code       | comment    | blank      | total      |
++--------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\app.py                                 | Python           |        407 |          0 |         57 |        464 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\README.md                       | Markdown         |         69 |          0 |         28 |         97 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\install_ubuntu.sh               | Shell Script     |        102 |          4 |         18 |        124 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\install_windows.ps1             | PowerShell       |        157 |         15 |         21 |        193 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\prepare_offline_ubuntu.sh       | Shell Script     |         45 |          3 |         10 |         58 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\prepare_offline_windows.ps1     | PowerShell       |         87 |          2 |         15 |        104 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\udev\99-percent-meter-usb.rules | Codex Rules      |          4 |          4 |          3 |         11 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\uninstall_ubuntu.sh             | Shell Script     |         24 |          1 |          8 |         33 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\uninstall_windows.ps1           | PowerShell       |         22 |          1 |          6 |         29 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\一键部署_Ubuntu.sh                  | Shell Script     |          8 |          1 |          4 |         13 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\一键部署_Windows.bat                | Batch            |         23 |          0 |          5 |         28 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\meter_config.json                      | JSON             |        157 |          0 |          0 |        157 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\requirements.txt                       | pip requirements |          4 |          0 |          1 |          5 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\start_server.ps1                       | PowerShell       |         10 |          0 |          4 |         14 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\start_server.sh                        | Shell Script     |         28 |          1 |          6 |         35 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\app.js                             | JavaScript       |        429 |          0 |         31 |        460 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\index.html                         | HTML             |         59 |          0 |          3 |         62 |
+| e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\styles.css                         | CSS              |         10 |          1 |          1 |         12 |
+| Total                                                                                                                    |                  |      1,645 |         33 |        221 |      1,899 |
++--------------------------------------------------------------------------------------------------------------------------+------------------+------------+------------+------------+------------+

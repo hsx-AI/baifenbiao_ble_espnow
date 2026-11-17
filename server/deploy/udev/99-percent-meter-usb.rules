@@ -1,0 +1,10 @@
+# Percent Meter gateway — USB / serial access for ESP32 (Espressif 303a) and common USB-UART
+# Installed to /etc/udev/rules.d/ by install_ubuntu.sh
+
+# Espressif USB-JTAG / serial (XIAO ESP32-C3 等)
+SUBSYSTEM=="usb", ATTRS{idVendor}=="303a", MODE="0666", GROUP="dialout"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", MODE="0666", GROUP="dialout"
+
+# 通用 USB 串口（ACM / USB-serial 转接）
+SUBSYSTEM=="tty", KERNEL=="ttyACM[0-9]*", MODE="0666", GROUP="dialout"
+SUBSYSTEM=="tty", KERNEL=="ttyUSB[0-9]*", MODE="0666", GROUP="dialout"

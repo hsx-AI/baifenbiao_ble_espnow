@@ -229,10 +229,13 @@ function collectConfig() {
   return {version: 1, nodes};
 }
 
-function portOptions(selected) {
-  const samePort = (left, right) => /^COM\d+$/i.test(String(left)) && /^COM\d+$/i.test(String(right))
+function samePort(left, right) {
+  return /^COM\d+$/i.test(String(left)) && /^COM\d+$/i.test(String(right))
     ? String(left).toUpperCase() === String(right).toUpperCase()
     : String(left) === String(right);
+}
+
+function portOptions(selected) {
   const options = ['<option value="">选择从站串口</option>'];
   for (const port of serialPorts) {
     options.push(`<option value="${escapeHtml(port.device)}" ${samePort(port.device, selected) ? 'selected' : ''}>${escapeHtml(port.device)} · ${escapeHtml(port.description)}</option>`);
@@ -241,6 +244,42 @@ function portOptions(selected) {
     options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} · 当前未连接</option>`);
   }
   return options.join('');
+}
+
+function fillGatewayPortSelect(portsPayload = {}) {
+  const select = document.querySelector('#gatewayPortSelect');
+  if (!select) return;
+  const selected = portsPayload.requested_port || portsPayload.gateway_port || '';
+  const options = ['<option value="">自动扫描</option>'];
+  for (const port of serialPorts) {
+    options.push(`<option value="${escapeHtml(port.device)}" ${samePort(port.device, selected) ? 'selected' : ''}>${escapeHtml(port.device)} · ${escapeHtml(port.description)}</option>`);
+  }
+  if (selected && !serialPorts.some(port => samePort(port.device, selected))) {
+    options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} · 当前未连接</option>`);
+  }
+  select.innerHTML = options.join('');
+  select.disabled = Boolean(portsPayload.simulate);
+  if (portsPayload.simulate) {
+    select.title = '演示模式无需选择主站串口';
+  }
+}
+
+async function refreshSerialPorts() {
+  const ports = await api('/api/serial/ports');
+  serialPorts = ports.ports || [];
+  fillGatewayPortSelect(ports);
+  if (meterConfig) renderNodeGrid();
+  return ports;
+}
+
+async function setGatewayPort(port) {
+  const result = await api('/api/serial/gateway', {
+    method: 'PUT',
+    body: JSON.stringify({port: port || ''}),
+  });
+  setGateway(true, result.message || (port ? `正在切换主站串口 ${port}` : '正在自动扫描主站串口'));
+  setTimeout(() => { refreshSerialPorts().catch(() => {}); }, 800);
+  return result;
 }
 
 function renderNodeGrid() {
@@ -405,6 +444,7 @@ async function loadConfiguration() {
     const [config, ports] = await Promise.all([api('/api/config'), api('/api/serial/ports')]);
     meterConfig = config;
     serialPorts = ports.ports || [];
+    fillGatewayPortSelect(ports);
     renderNodeGrid();
     showStatus('configStatus', `配置已载入 · 检测到 ${serialPorts.length} 个串口`, 'success');
   } catch (error) {
@@ -422,19 +462,58 @@ document.querySelector('#scanButton').addEventListener('click', scanBle);
 document.querySelector('#saveButton').addEventListener('click', saveConfig);
 document.querySelector('#clearLog').addEventListener('click', () => { document.querySelector('#operationLog').textContent = '等待操作……'; });
 document.querySelector('#deviceFilter').addEventListener('change', applyDeviceFilter);
+document.querySelector('#refreshPortsButton').addEventListener('click', async () => {
+  try {
+    await refreshSerialPorts();
+  } catch (error) {
+    alert(`刷新串口失败：${error.message || error}`);
+  }
+});
+document.querySelector('#gatewayPortSelect').addEventListener('change', async event => {
+  try {
+    await setGatewayPort(event.target.value);
+  } catch (error) {
+    alert(`切换主站串口失败：${error.message || error}`);
+    refreshSerialPorts().catch(() => {});
+  }
+});
 document.querySelector('#fullscreenButton').addEventListener('click', () => {
   if (document.fullscreenElement) document.exitFullscreen();
   else document.documentElement.requestFullscreen().catch(() => {});
 });
-document.querySelector('#exportButton').addEventListener('click', () => {
-  const rows = [['表号','从站','变形量(mm)','蓝牙状态','RSSI(dBm)','序号','导出时间']];
-  for (let id = 1; id <= MAX_METERS; id++) {
-    const data = meters.get(id) || {};
-    rows.push([id,data.node_id || '',data.valid ? Number(data.value_mm).toFixed(4) : '',data.ble_connected ? '在线' : '断开',data.ble_rssi || '',data.sequence || '',formatTime()]);
+document.querySelector('#exportButton').addEventListener('click', async () => {
+  const button = document.querySelector('#exportButton');
+  const hours = Number(document.querySelector('#exportHours').value || 24);
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = '导出中…';
+  try {
+    const response = await fetch(`/api/export/history.xlsx?hours=${encodeURIComponent(hours)}`);
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.json();
+        detail = payload.detail || '';
+      } catch {
+        detail = await response.text();
+      }
+      throw new Error(detail || `导出失败 (${response.status})`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const matched = /filename="?([^"]+)"?/i.exec(disposition);
+    const filename = matched?.[1] || `水压试验变形数据_${hours}h_${new Date().toISOString().slice(0,10)}.xlsx`;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    alert(`导出失败：${error.message || error}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
   }
-  const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n');
-  const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
-  link.download = `水压试验变形数据_${new Date().toISOString().slice(0,10)}.csv`; link.click(); URL.revokeObjectURL(link.href);
 });
 
 setInterval(() => {

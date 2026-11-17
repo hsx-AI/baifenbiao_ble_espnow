@@ -1,0 +1,538 @@
+const MAX_METERS = 20;
+const histories = new Map();
+const meters = new Map();
+let socket;
+let lastPacketCount = 0;
+let lastRateTime = Date.now();
+let totalPackets = 0;
+let meterConfig = null;
+let serialPorts = [];
+let lastDataTime = 0;
+const systemStartedAt = Date.now();
+const overallHistory = [];
+
+const grid = document.querySelector('#meterGrid');
+const pad = n => String(n).padStart(2, '0');
+const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+
+for (let id = 1; id <= MAX_METERS; id++) {
+  const card = document.createElement('article');
+  card.className = 'meter-card';
+  card.id = `meter-${id}`;
+  card.innerHTML = `<div class="card-head"><div class="meter-name"><span class="meter-index">${pad(id)}</span>百分表 ${pad(id)}</div><div class="state"><i></i><span>待机</span></div></div><div class="card-main"><div class="gauge"><div class="reading"><strong>--.----</strong><small>mm</small></div></div><div class="spark-zone"><div class="measurement-label"><span>实时变形</span><b class="mini-value">--.----</b></div><canvas class="spark"></canvas><div class="updated-time">--:--:--</div><span class="protocol-note"></span></div></div><div class="card-foot"><span>BLE</span><span class="node">--</span><span class="signal">--</span><span class="seq-wrap">SEQ <b class="seq">--</b></span></div>`;
+  grid.appendChild(card);
+  histories.set(id, []);
+}
+
+function signalClass(rssi) { return rssi >= -65 ? 'good' : rssi >= -82 ? 'weak' : ''; }
+
+function formatTime(timestamp = Date.now()) {
+  return new Date(timestamp).toLocaleTimeString('zh-CN', {hour12: false});
+}
+
+function drawSpark(id) {
+  const card = document.querySelector(`#meter-${id}`);
+  const canvas = card.querySelector('canvas');
+  const values = histories.get(id);
+  const dpr = devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(25,126,197,.2)';
+  for (let y = 5; y < h; y += 16) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  if (values.length < 2) return;
+  let min = Math.min(...values), max = Math.max(...values);
+  if (max - min < .002) { max += .001; min -= .001; }
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, 'rgba(20,122,229,.35)'); grad.addColorStop(1, '#20b6ff');
+  ctx.strokeStyle = grad; ctx.lineWidth = 1.5; ctx.beginPath();
+  values.forEach((v, i) => {
+    const x = i / (values.length - 1) * w;
+    const y = h - 5 - (v - min) / (max - min) * (h - 10);
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+}
+
+function drawOverallTrend() {
+  const canvas = document.querySelector('#overallTrend');
+  if (!canvas) return;
+  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(24,112,176,.2)'; ctx.lineWidth = 1;
+  for (let y = 12; y < h; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  for (let x = 0; x < w; x += w / 5) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+  if (overallHistory.length < 2) return;
+  let min = Math.min(...overallHistory), max = Math.max(...overallHistory);
+  if (max - min < .001) { min -= .0005; max += .0005; }
+  const points = overallHistory.map((v, i) => [i / (overallHistory.length - 1) * w, h - 10 - (v - min) / (max - min) * (h - 20)]);
+  const fill = ctx.createLinearGradient(0, 0, 0, h); fill.addColorStop(0, 'rgba(17,157,255,.32)'); fill.addColorStop(1, 'rgba(17,157,255,0)');
+  ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y)); ctx.strokeStyle = '#1cb1ff'; ctx.lineWidth = 2; ctx.shadowColor = '#168dff'; ctx.shadowBlur = 7; ctx.stroke();
+  const [lx,ly] = points.at(-1); ctx.beginPath(); ctx.arc(lx,ly,4,0,Math.PI*2); ctx.fillStyle='#d6f4ff'; ctx.fill();
+}
+
+function refreshStatistics(pushTrend = false) {
+  const validValues = [...meters.values()].filter(d => d.valid && Number.isFinite(Number(d.value_mm))).map(d => Number(d.value_mm));
+  const set = (id, value) => { const el = document.querySelector(`#${id}`); if (el) el.textContent = value; };
+  if (!validValues.length) {
+    ['maxValue','minValue','avgValue','rangeValue'].forEach(id => set(id, '--.----'));
+    return;
+  }
+  const max = Math.max(...validValues), min = Math.min(...validValues), avg = validValues.reduce((a,b)=>a+b,0)/validValues.length;
+  set('maxValue', max.toFixed(4)); set('minValue', min.toFixed(4)); set('avgValue', avg.toFixed(4)); set('rangeValue', (max-min).toFixed(4));
+  if (pushTrend) { overallHistory.push(avg); if (overallHistory.length > 60) overallHistory.shift(); drawOverallTrend(); }
+}
+
+function renderMeter(data) {
+  const id = Number(data.meter_id);
+  if (id < 1 || id > MAX_METERS) return;
+  meters.set(id, data);
+  const card = document.querySelector(`#meter-${id}`);
+  const nodeAlive = Date.now() - data.timestamp_ms < 6000;
+  const online = nodeAlive && data.ble_connected !== false;
+  card.classList.toggle('online', online);
+  card.classList.toggle('reconnecting', nodeAlive && !online);
+  card.querySelector('.state span').textContent = online ? '表在线' : nodeAlive ? '表断开 · 重连' : '从站离线';
+  card.querySelector('.node').textContent = pad(data.node_id || 0);
+  card.querySelector('.seq').textContent = data.sequence ?? '--';
+  const signal = card.querySelector('.signal');
+  signal.textContent = data.ble_rssi ? `${data.ble_rssi} dBm` : '--';
+  signal.className = `signal ${signalClass(data.ble_rssi)}`;
+  card.querySelector('.reading small').textContent = data.unit || 'mm';
+  const note = card.querySelector('.protocol-note');
+  if (data.valid) {
+    const value = Number(data.value_mm);
+    card.querySelector('.reading strong').textContent = value.toFixed(4);
+    card.querySelector('.mini-value').textContent = value.toFixed(4);
+    card.querySelector('.gauge').style.setProperty('--gauge-angle', `${Math.min(270, 35 + Math.abs(value) * 80)}deg`);
+    card.querySelector('.updated-time').textContent = formatTime(data.measurement_timestamp_ms || data.timestamp_ms || Date.now());
+    note.textContent = online ? (data.heartbeat && !data.measurement_timestamp_ms ? '已连接 · 等待读数' : '') : '蓝牙断开 · 自动重连中';
+    if (!data.heartbeat) {
+      const list = histories.get(id);
+      list.push(Number(data.value_mm));
+      if (list.length > 50) list.shift();
+      drawSpark(id);
+      lastDataTime = Date.now();
+      refreshStatistics(true);
+    }
+  } else {
+    card.querySelector('.reading strong').textContent = '--.----';
+    card.querySelector('.mini-value').textContent = '--.----';
+    note.textContent = !nodeAlive ? '从站心跳超时' : !online ? '蓝牙断开 · 自动重连中' : data.raw_hex ? '已收到原始数据 · 待解析协议' : '已连接 · 等待读数';
+  }
+  card.classList.remove('pulse');
+  requestAnimationFrame(() => card.classList.add('pulse'));
+}
+
+function refreshOnline() {
+  let online = 0, reconnecting = 0, offline = 0;
+  for (const [id, data] of meters) {
+    const nodeAlive = Date.now() - data.timestamp_ms < 6000;
+    const isOnline = nodeAlive && data.ble_connected !== false;
+    const card = document.querySelector(`#meter-${id}`);
+    card.classList.toggle('online', isOnline);
+    card.classList.toggle('reconnecting', nodeAlive && !isOnline);
+    card.querySelector('.state span').textContent = isOnline ? '表在线' : nodeAlive ? '表断开 · 重连' : '从站离线';
+    if (isOnline) online++;
+    else if (nodeAlive) reconnecting++;
+    else offline++;
+  }
+  offline += MAX_METERS - meters.size;
+  document.querySelector('#onlineCount').textContent = online;
+  document.querySelector('#deviceOnlineCount').textContent = online;
+  document.querySelector('#normalCount').textContent = online;
+  document.querySelector('#reconnectCount').textContent = reconnecting;
+  document.querySelector('#offlineCount').textContent = offline;
+  document.querySelector('#idleCount').textContent = Math.max(0, MAX_METERS - online - reconnecting - offline);
+  document.querySelector('#statusDonut').style.setProperty('--online-angle', `${online / MAX_METERS * 360}deg`);
+  applyDeviceFilter();
+}
+
+function setGateway(ok, text) {
+  document.querySelector('#gatewayDot').classList.toggle('online', ok);
+  document.querySelector('#gatewayText').textContent = text;
+  document.querySelector('#footerStatus').textContent = text;
+}
+
+function applyDeviceFilter() {
+  const filter = document.querySelector('#deviceFilter')?.value || 'all';
+  document.querySelectorAll('.meter-card').forEach(card => {
+    const matches = filter === 'all' || (filter === 'online' && card.classList.contains('online')) || (filter === 'alarm' && !card.classList.contains('online'));
+    card.classList.toggle('filtered', !matches);
+  });
+}
+
+function connect() {
+  socket = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  socket.onopen = () => setGateway(true, '服务已连接');
+  socket.onmessage = event => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'snapshot') {
+      (msg.meters || []).forEach(renderMeter);
+      totalPackets = msg.status?.total_packets || 0;
+      if (msg.status?.simulate) setGateway(true, '演示数据');
+      else if (msg.status?.serial_connected) setGateway(true, `主站串口 ${msg.status.serial_port}`);
+    } else if (msg.type === 'measurement' || msg.type === 'status') {
+      renderMeter(msg.data); totalPackets++;
+    }
+    document.querySelector('#packetCount').textContent = totalPackets.toLocaleString();
+    document.querySelector('#lastUpdate').textContent = formatTime();
+    refreshStatistics(false);
+  };
+  socket.onclose = () => { setGateway(false, '连接中断 · 重试中'); setTimeout(connect, 1800); };
+  socket.onerror = () => socket.close();
+}
+
+async function api(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: {'Content-Type': 'application/json', ...(options.headers || {})},
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || `请求失败 (${response.status})`);
+  return data;
+}
+
+function showStatus(elementId, text, kind = '') {
+  const element = document.querySelector(`#${elementId}`);
+  element.textContent = text;
+  element.className = `soft-status ${kind}`;
+}
+
+function appendLog(lines) {
+  const log = document.querySelector('#operationLog');
+  const text = Array.isArray(lines) ? lines.join('\n') : String(lines);
+  log.textContent = log.textContent === '等待操作……' ? text : `${log.textContent}\n${text}`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function collectConfig() {
+  const nodes = [...document.querySelectorAll('.node-config')].map(card => ({
+    node_id: Number(card.dataset.nodeId),
+    port: card.querySelector('.port-select').value,
+    keepalive_mode: Number(card.querySelector('.keepalive-mode').value),
+    keepalive_seconds: Number(card.querySelector('.keepalive-seconds').value),
+    meters: [...card.querySelectorAll('.slot-row')].map(row => ({
+      slot: Number(row.dataset.slot),
+      meter_id: Number(row.querySelector('.meter-id-input').value),
+      mac: row.querySelector('.mac-input').value.trim().toUpperCase().replaceAll('-', ':'),
+      name: row.querySelector('.device-name-input').value.trim(),
+    })),
+  }));
+  return {version: 1, nodes};
+}
+
+function samePort(left, right) {
+  return /^COM\d+$/i.test(String(left)) && /^COM\d+$/i.test(String(right))
+    ? String(left).toUpperCase() === String(right).toUpperCase()
+    : String(left) === String(right);
+}
+
+function portOptions(selected) {
+  const options = ['<option value="">选择从站串口</option>'];
+  for (const port of serialPorts) {
+    options.push(`<option value="${escapeHtml(port.device)}" ${samePort(port.device, selected) ? 'selected' : ''}>${escapeHtml(port.device)} · ${escapeHtml(port.description)}</option>`);
+  }
+  if (selected && !serialPorts.some(port => samePort(port.device, selected))) {
+    options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} · 当前未连接</option>`);
+  }
+  return options.join('');
+}
+
+function fillGatewayPortSelect(portsPayload = {}) {
+  const select = document.querySelector('#gatewayPortSelect');
+  if (!select) return;
+  const selected = portsPayload.requested_port || portsPayload.gateway_port || '';
+  const options = ['<option value="">自动扫描</option>'];
+  for (const port of serialPorts) {
+    options.push(`<option value="${escapeHtml(port.device)}" ${samePort(port.device, selected) ? 'selected' : ''}>${escapeHtml(port.device)} · ${escapeHtml(port.description)}</option>`);
+  }
+  if (selected && !serialPorts.some(port => samePort(port.device, selected))) {
+    options.push(`<option value="${escapeHtml(selected)}" selected>${escapeHtml(selected)} · 当前未连接</option>`);
+  }
+  select.innerHTML = options.join('');
+  select.disabled = Boolean(portsPayload.simulate);
+  if (portsPayload.simulate) {
+    select.title = '演示模式无需选择主站串口';
+  }
+}
+
+async function refreshSerialPorts() {
+  const ports = await api('/api/serial/ports');
+  serialPorts = ports.ports || [];
+  fillGatewayPortSelect(ports);
+  if (meterConfig) renderNodeGrid();
+  return ports;
+}
+
+async function setGatewayPort(port) {
+  const result = await api('/api/serial/gateway', {
+    method: 'PUT',
+    body: JSON.stringify({port: port || ''}),
+  });
+  setGateway(true, result.message || (port ? `正在切换主站串口 ${port}` : '正在自动扫描主站串口'));
+  setTimeout(() => { refreshSerialPorts().catch(() => {}); }, 800);
+  return result;
+}
+
+function renderNodeGrid() {
+  const nodeGrid = document.querySelector('#nodeGrid');
+  nodeGrid.innerHTML = meterConfig.nodes.map(node => `
+    <article class="node-config panel" data-node-id="${node.node_id}">
+      <div class="node-title">
+        <div class="node-badge">N${pad(node.node_id)}</div>
+        <div><span>SLAVE NODE</span><h3>从站 ${node.node_id}</h3></div>
+        <span class="slot-count">${node.meters.filter(m => m.mac).length} / 5 已分配</span>
+      </div>
+      <div class="port-line"><label>配置串口</label><select class="port-select">${portOptions(node.port)}</select></div>
+      <div class="experiment-line">
+        <label>防关机实验</label>
+        <select class="keepalive-mode">
+          <option value="0" ${node.keepalive_mode === 0 ? 'selected' : ''}>关闭 · 对照组</option>
+          <option value="1" ${node.keepalive_mode === 1 ? 'selected' : ''}>CRLF · 0D 0A</option>
+          <option value="2" ${node.keepalive_mode === 2 ? 'selected' : ''}>QUERY · 3F 0D 0A</option>
+          <option value="3" ${node.keepalive_mode === 3 ? 'selected' : ''}>NUL · 00</option>
+        </select>
+        <label>间隔（秒）</label>
+        <input class="keepalive-seconds" type="number" min="30" max="600" value="${node.keepalive_seconds || 90}">
+      </div>
+      <div class="slot-list">
+        ${node.meters.map(meter => `
+          <div class="slot-row" data-slot="${meter.slot}">
+            <span class="slot-label">槽位 ${meter.slot}</span>
+            <label>表号<input class="meter-id-input" type="number" min="1" max="20" value="${meter.meter_id}"></label>
+            <label>设备名<input class="device-name-input" value="${escapeHtml(meter.name)}" placeholder="扫描后自动填入"></label>
+            <label class="mac-field">MAC 地址<input class="mac-input" value="${escapeHtml(meter.mac)}" placeholder="AA:BB:CC:DD:EE:FF"></label>
+            <button class="clear-slot" title="清除此槽位" aria-label="清除从站${node.node_id}槽位${meter.slot}">×</button>
+          </div>`).join('')}
+      </div>
+      <button class="write-node primary-button" data-node-id="${node.node_id}">保存并写入从站 ${node.node_id}</button>
+    </article>`).join('');
+
+  document.querySelectorAll('.clear-slot').forEach(button => button.addEventListener('click', () => {
+    const row = button.closest('.slot-row');
+    row.querySelector('.mac-input').value = '';
+    row.querySelector('.device-name-input').value = '';
+    refreshSlotCounts();
+  }));
+  document.querySelectorAll('.mac-input').forEach(input => input.addEventListener('input', refreshSlotCounts));
+  document.querySelectorAll('.write-node').forEach(button => button.addEventListener('click', () => writeNode(Number(button.dataset.nodeId), button)));
+}
+
+function refreshSlotCounts() {
+  document.querySelectorAll('.node-config').forEach(card => {
+    const count = [...card.querySelectorAll('.mac-input')].filter(input => input.value.trim()).length;
+    card.querySelector('.slot-count').textContent = `${count} / 5 已分配`;
+  });
+}
+
+function assignDevice(address, name, selectValue) {
+  if (!selectValue) return;
+  const [nodeId, slot] = selectValue.split('-').map(Number);
+  document.querySelectorAll('.mac-input').forEach(input => {
+    if (input.value.trim().toUpperCase() === address.toUpperCase()) {
+      input.value = '';
+      input.closest('.slot-row').querySelector('.device-name-input').value = '';
+    }
+  });
+  const row = document.querySelector(`.node-config[data-node-id="${nodeId}"] .slot-row[data-slot="${slot}"]`);
+  row.querySelector('.mac-input').value = address;
+  row.querySelector('.device-name-input').value = name === '未命名设备' ? '' : name;
+  refreshSlotCounts();
+  showStatus('configStatus', `${name} 已分配到从站 ${nodeId} / 槽位 ${slot}`, 'success');
+}
+
+function assignmentOptions() {
+  const options = ['<option value="">选择从站与槽位</option>'];
+  for (let node = 1; node <= 4; node++) {
+    for (let slot = 1; slot <= 5; slot++) {
+      options.push(`<option value="${node}-${slot}">从站 ${node} · 槽位 ${slot} · 表 ${((node - 1) * 5 + slot)}</option>`);
+    }
+  }
+  return options.join('');
+}
+
+function renderScanResults(devices) {
+  const target = document.querySelector('#scanResults');
+  if (!devices.length) {
+    target.className = 'scan-results empty-state';
+    target.textContent = '没有发现 BLE 设备。请确认电脑蓝牙已开启，并让百分表处于未连接状态。';
+    return;
+  }
+  target.className = 'scan-results';
+  target.innerHTML = `<div class="scan-table-head"><span>设备</span><span>MAC 地址</span><span>信号</span><span>分配位置</span></div>` + devices.map((device, index) => `
+    <div class="scan-row ${device.likely_meter ? 'likely' : ''}">
+      <div class="scan-device"><i></i><div><strong>${escapeHtml(device.name)}</strong><small>${device.likely_meter ? '疑似百分表' : '普通 BLE 设备'}${device.configured ? ' · 已配置' : ''}</small></div></div>
+      <code>${escapeHtml(device.address)}</code>
+      <span class="rssi ${signalClass(device.rssi)}">${device.rssi} dBm</span>
+      <div class="assign-control"><select data-scan-index="${index}">${assignmentOptions()}</select><button data-assign-index="${index}" class="mini-button">分配</button></div>
+    </div>`).join('');
+  target.querySelectorAll('[data-assign-index]').forEach(button => button.addEventListener('click', () => {
+    const index = Number(button.dataset.assignIndex);
+    const select = target.querySelector(`select[data-scan-index="${index}"]`);
+    if (!select.value) { showStatus('configStatus', '请先选择从站与槽位', 'error'); return; }
+    assignDevice(devices[index].address, devices[index].name, select.value);
+  }));
+}
+
+async function scanBle() {
+  const button = document.querySelector('#scanButton');
+  button.disabled = true;
+  button.textContent = '正在扫描 8 秒…';
+  showStatus('scanStatus', '电脑蓝牙正在搜索', 'working');
+  try {
+    const data = await api('/api/ble/scan', {method: 'POST', body: JSON.stringify({duration: 8})});
+    renderScanResults(data.devices);
+    const candidates = data.devices.filter(device => device.likely_meter).length;
+    showStatus('scanStatus', `发现 ${data.devices.length} 个设备，其中 ${candidates} 个疑似百分表`, 'success');
+  } catch (error) {
+    showStatus('scanStatus', error.message, 'error');
+    appendLog(`[蓝牙扫描] ${error.message}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = '重新扫描附近百分表';
+  }
+}
+
+async function saveConfig() {
+  const button = document.querySelector('#saveButton');
+  button.disabled = true;
+  try {
+    const result = await api('/api/config', {method: 'PUT', body: JSON.stringify(collectConfig())});
+    meterConfig = result.config;
+    showStatus('configStatus', '全部映射已保存', 'success');
+    appendLog(`[配置] ${new Date().toLocaleTimeString('zh-CN')} 全部映射已保存`);
+    return true;
+  } catch (error) {
+    showStatus('configStatus', error.message, 'error');
+    appendLog(`[配置失败] ${error.message}`);
+    return false;
+  } finally { button.disabled = false; }
+}
+
+async function writeNode(nodeId, button) {
+  const saved = await saveConfig();
+  if (!saved) return;
+  const card = document.querySelector(`.node-config[data-node-id="${nodeId}"]`);
+  const port = card.querySelector('.port-select').value;
+  if (!port) { showStatus('configStatus', `请为从站 ${nodeId} 选择串口`, 'error'); return; }
+  button.disabled = true;
+  button.textContent = `正在写入 ${port}…`;
+  appendLog(`\n[从站 ${nodeId}] 开始通过 ${port} 写入配置`);
+  try {
+    const result = await api(`/api/configure-slave/${nodeId}`, {method: 'POST', body: JSON.stringify({port})});
+    appendLog(result.logs);
+    showStatus('configStatus', `从站 ${nodeId} 写入完成并已重启`, 'success');
+  } catch (error) {
+    appendLog(`[写入失败] ${error.message}`);
+    showStatus('configStatus', error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = `保存并写入从站 ${nodeId}`;
+  }
+}
+
+async function loadConfiguration() {
+  try {
+    const [config, ports] = await Promise.all([api('/api/config'), api('/api/serial/ports')]);
+    meterConfig = config;
+    serialPorts = ports.ports || [];
+    fillGatewayPortSelect(ports);
+    renderNodeGrid();
+    showStatus('configStatus', `配置已载入 · 检测到 ${serialPorts.length} 个串口`, 'success');
+  } catch (error) {
+    showStatus('configStatus', error.message, 'error');
+    appendLog(`[初始化失败] ${error.message}`);
+  }
+}
+
+document.querySelectorAll('.view-tab').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('.view-tab').forEach(tab => tab.classList.toggle('active', tab === button));
+  document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+  document.querySelector(`#${button.dataset.view}View`).classList.add('active');
+}));
+document.querySelector('#scanButton').addEventListener('click', scanBle);
+document.querySelector('#saveButton').addEventListener('click', saveConfig);
+document.querySelector('#clearLog').addEventListener('click', () => { document.querySelector('#operationLog').textContent = '等待操作……'; });
+document.querySelector('#deviceFilter').addEventListener('change', applyDeviceFilter);
+document.querySelector('#refreshPortsButton').addEventListener('click', async () => {
+  try {
+    await refreshSerialPorts();
+  } catch (error) {
+    alert(`刷新串口失败：${error.message || error}`);
+  }
+});
+document.querySelector('#gatewayPortSelect').addEventListener('change', async event => {
+  try {
+    await setGatewayPort(event.target.value);
+  } catch (error) {
+    alert(`切换主站串口失败：${error.message || error}`);
+    refreshSerialPorts().catch(() => {});
+  }
+});
+document.querySelector('#fullscreenButton').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+});
+document.querySelector('#exportButton').addEventListener('click', async () => {
+  const button = document.querySelector('#exportButton');
+  const hours = Number(document.querySelector('#exportHours').value || 24);
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = '导出中…';
+  try {
+    const response = await fetch(`/api/export/history.xlsx?hours=${encodeURIComponent(hours)}`);
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const payload = await response.json();
+        detail = payload.detail || '';
+      } catch {
+        detail = await response.text();
+      }
+      throw new Error(detail || `导出失败 (${response.status})`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const matched = /filename="?([^"]+)"?/i.exec(disposition);
+    const filename = matched?.[1] || `水压试验变形数据_${hours}h_${new Date().toISOString().slice(0,10)}.xlsx`;
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  } catch (error) {
+    alert(`导出失败：${error.message || error}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
+
+setInterval(() => {
+  const now = Date.now();
+  const dt = (now - lastRateTime) / 1000;
+  const rate = (totalPackets - lastPacketCount) / dt;
+  document.querySelector('#packetRate').textContent = Math.max(0, rate).toFixed(1);
+  lastPacketCount = totalPackets; lastRateTime = now;
+  refreshOnline();
+  const date = new Date();
+  document.querySelector('#clock').textContent = date.toLocaleTimeString('zh-CN', {hour12: false});
+  document.querySelector('#headerDate').textContent = date.toLocaleDateString('zh-CN').replaceAll('/','-');
+  const elapsed = Math.max(0, Date.now() - systemStartedAt);
+  const days = Math.floor(elapsed / 86400000), hours = Math.floor(elapsed / 3600000) % 24, minutes = Math.floor(elapsed / 60000) % 60;
+  document.querySelector('#systemUptime').textContent = `${days}天 ${pad(hours)}时 ${pad(minutes)}分`;
+}, 1000);
+
+window.addEventListener('resize', () => { histories.forEach((_, id) => drawSpark(id)); drawOverallTrend(); });
+refreshOnline();
+drawOverallTrend();
+connect();
+loadConfiguration();

@@ -3,3 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+server/meter_history.db
+server/meter_history.db-*
+server/_test_export.xlsx
+server/__pycache__/

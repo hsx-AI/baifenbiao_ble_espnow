@@ -1,4 +1,4 @@
-# 在有网络的 Windows 上运行，下载离线部署所需资源到 deploy 目录。
+# Run on a Windows PC with internet to download offline deploy assets.
 #Requires -Version 5.1
 $ErrorActionPreference = "Stop"
 
@@ -14,38 +14,74 @@ $PythonEmbedZip = "python-$PythonVersion-embed-amd64.zip"
 $PythonEmbedUrl = "https://www.python.org/ftp/python/$PythonVersion/$PythonEmbedZip"
 $NssmZipUrl = "https://nssm.cc/release/nssm-2.24.zip"
 $GetPipUrl = "https://bootstrap.pypa.io/get-pip.py"
+$ProjectRoot = Split-Path -Parent $ServerDir
+
+function Find-LocalPythonZip {
+    $candidates = @(
+        (Join-Path $DeployDir $PythonEmbedZip),
+        (Join-Path $ProjectRoot "include\$PythonEmbedZip"),
+        (Join-Path $ServerDir $PythonEmbedZip)
+    )
+    foreach ($path in $candidates) {
+        if (Test-Path -LiteralPath $path) {
+            return (Resolve-Path -LiteralPath $path).Path
+        }
+    }
+    return $null
+}
 
 function Write-Step([string]$Message) {
     Write-Host "[*] $Message" -ForegroundColor Cyan
 }
 
 function Download-File([string]$Url, [string]$Dest) {
-    Write-Step "下载 $Url"
+    Write-Step "Downloading $Url"
     Invoke-WebRequest -Uri $Url -OutFile $Dest -UseBasicParsing
 }
 
-Write-Step "清理并创建目录"
-if (Test-Path -LiteralPath $TempDir) { Remove-Item -LiteralPath $TempDir -Recurse -Force }
+Write-Step "Prepare directories"
+if (Test-Path -LiteralPath $TempDir) {
+    Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Path $WheelsDir, $EmbedDir, $NssmDir, $TempDir -Force | Out-Null
 
-Download-File $PythonEmbedUrl (Join-Path $TempDir $PythonEmbedZip)
+$localPythonZip = Find-LocalPythonZip
+if ($localPythonZip) {
+    Write-Step "Use local Python embed zip: $localPythonZip"
+    $pythonZipPath = $localPythonZip
+} else {
+    $pythonZipPath = Join-Path $TempDir $PythonEmbedZip
+    Download-File $PythonEmbedUrl $pythonZipPath
+}
+
 if (Test-Path -LiteralPath $EmbedDir) { Remove-Item -LiteralPath $EmbedDir -Recurse -Force }
 New-Item -ItemType Directory -Path $EmbedDir -Force | Out-Null
-Expand-Archive -LiteralPath (Join-Path $TempDir $PythonEmbedZip) -DestinationPath $EmbedDir -Force
+Expand-Archive -LiteralPath $pythonZipPath -DestinationPath $EmbedDir -Force
+$deployZipCopy = Join-Path $DeployDir $PythonEmbedZip
+if ($pythonZipPath -ne (Resolve-Path -LiteralPath $deployZipCopy -ErrorAction SilentlyContinue).Path) {
+    Copy-Item -LiteralPath $pythonZipPath -Destination $deployZipCopy -Force
+}
 
-Download-File $GetPipUrl (Join-Path $DeployDir "get-pip.py")
+if (-not (Test-Path -LiteralPath (Join-Path $DeployDir "get-pip.py"))) {
+    Download-File $GetPipUrl (Join-Path $DeployDir "get-pip.py")
+}
 
-Write-Step "下载 pip wheels"
+Write-Step "Download pip wheels for Python 3.12"
 $pythonCmd = $null
-if (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = "python" }
-elseif (Get-Command py -ErrorAction SilentlyContinue) { $pythonCmd = "py -3" }
-else { throw "需要本机 Python 以执行 pip download" }
+if (Get-Command py -ErrorAction SilentlyContinue) { $pythonCmd = "py -3" }
+elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = "python" }
+else { throw "Python is required on this machine for pip download" }
 
+if (Test-Path -LiteralPath $WheelsDir) {
+    Remove-Item -LiteralPath "$WheelsDir\*" -Force -ErrorAction SilentlyContinue
+}
 $reqFile = Join-Path $ServerDir "requirements.txt"
-Invoke-Expression "$pythonCmd -m pip download -r `"$reqFile`" -d `"$WheelsDir`""
-Invoke-Expression "$pythonCmd -m pip download pip setuptools wheel -d `"$WheelsDir`""
+$pipIndex = "https://pypi.org/simple"
+$pipArgs = "-m pip download -d `"$WheelsDir`" -i `"$pipIndex`" --python-version 3.12 --platform win_amd64 --implementation cp --only-binary=:all:"
+Invoke-Expression "$pythonCmd $pipArgs -r `"$reqFile`""
+Invoke-Expression "$pythonCmd $pipArgs pip setuptools wheel packaging"
 
-Write-Step "下载 NSSM"
+Write-Step "Download NSSM"
 $nssmZip = Join-Path $TempDir "nssm.zip"
 Download-File $NssmZipUrl $nssmZip
 $nssmExtract = Join-Path $TempDir "nssm"
@@ -53,14 +89,15 @@ Expand-Archive -LiteralPath $nssmZip -DestinationPath $nssmExtract -Force
 $nssmSrc = Get-ChildItem -Path $nssmExtract -Recurse -Filter "nssm.exe" |
     Where-Object { $_.FullName -match "win64" } |
     Select-Object -First 1
-if (-not $nssmSrc) { throw "未找到 win64 nssm.exe" }
+if (-not $nssmSrc) { throw "win64 nssm.exe not found in archive" }
 Copy-Item -LiteralPath $nssmSrc.FullName -Destination (Join-Path $NssmDir "nssm.exe") -Force
 
-Remove-Item -LiteralPath $TempDir -Recurse -Force
+Remove-Item -LiteralPath $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 $wheelCount = @(Get-ChildItem -LiteralPath $WheelsDir -Filter "*.whl").Count
+$nssmPath = Join-Path $NssmDir "nssm.exe"
 Write-Host ""
-Write-Host "完成。可将整个 server 目录（含 deploy）复制到 U 盘。" -ForegroundColor Green
-Write-Host "  wheels: $wheelCount 个"
+Write-Host "Done. Copy the whole server folder (including deploy) to USB." -ForegroundColor Green
+Write-Host "  wheels: $wheelCount"
 Write-Host "  python-embed: $EmbedDir"
-Write-Host "  nssm: $(Join-Path $NssmDir 'nssm.exe')"
+Write-Host "  nssm: $nssmPath"

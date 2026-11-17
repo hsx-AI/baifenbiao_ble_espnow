@@ -1,0 +1,20 @@
+"filename", "language", "CSS", "HTML", "PowerShell", "Shell Script", "JavaScript", "JSON", "Batch", "pip requirements", "Markdown", "Codex Rules", "Python", "comment", "blank", "total"
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\app.py", "Python", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 407, 0, 57, 464
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\README.md", "Markdown", 0, 0, 0, 0, 0, 0, 0, 0, 69, 0, 0, 0, 28, 97
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\install_ubuntu.sh", "Shell Script", 0, 0, 0, 102, 0, 0, 0, 0, 0, 0, 0, 4, 18, 124
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\install_windows.ps1", "PowerShell", 0, 0, 157, 0, 0, 0, 0, 0, 0, 0, 0, 15, 21, 193
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\prepare_offline_ubuntu.sh", "Shell Script", 0, 0, 0, 45, 0, 0, 0, 0, 0, 0, 0, 3, 10, 58
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\prepare_offline_windows.ps1", "PowerShell", 0, 0, 87, 0, 0, 0, 0, 0, 0, 0, 0, 2, 15, 104
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\udev\99-percent-meter-usb.rules", "Codex Rules", 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 4, 3, 11
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\uninstall_ubuntu.sh", "Shell Script", 0, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 1, 8, 33
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\uninstall_windows.ps1", "PowerShell", 0, 0, 22, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 29
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\一键部署_Ubuntu.sh", "Shell Script", 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 1, 4, 13
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\deploy\一键部署_Windows.bat", "Batch", 0, 0, 0, 0, 0, 0, 23, 0, 0, 0, 0, 0, 5, 28
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\meter_config.json", "JSON", 0, 0, 0, 0, 0, 157, 0, 0, 0, 0, 0, 0, 0, 157
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\requirements.txt", "pip requirements", 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1, 5
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\start_server.ps1", "PowerShell", 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 14
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\start_server.sh", "Shell Script", 0, 0, 0, 28, 0, 0, 0, 0, 0, 0, 0, 1, 6, 35
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\app.js", "JavaScript", 0, 0, 0, 0, 429, 0, 0, 0, 0, 0, 0, 0, 31, 460
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\index.html", "HTML", 0, 59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 62
+"e:\Desktop\tuixiu_protect\baifenbiao_ble_espnow\baifenbiao_ble_espnow_main\server\web\styles.css", "CSS", 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 12
+"Total", "-", 10, 59, 276, 207, 429, 157, 23, 4, 69, 4, 407, 33, 221, 1899

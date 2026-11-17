@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>水压试验变形监测系统</title>
-  <link rel="stylesheet" href="/assets/styles.css?v=20260820-hydro1">
+  <link rel="stylesheet" href="/assets/styles.css?v=20260828-export1">
 </head>
 <body>
   <div class="screen-grid" aria-hidden="true"></div>
@@ -41,7 +41,7 @@
           </section>
         </aside>
         <section class="device-panel">
-          <div class="device-toolbar"><div><i></i><h2>变形监测 <span>（<b id="deviceOnlineCount">0</b>/20）</span></h2></div><div class="toolbar-actions"><button class="layout-button active" aria-label="卡片布局">▦</button><button class="layout-button" aria-label="列表布局">☷</button><select id="deviceFilter" aria-label="设备筛选"><option value="all">全部设备</option><option value="online">在线设备</option><option value="alarm">断开设备</option></select><button class="export-button" id="exportButton">⇩ 导出数据</button></div></div>
+          <div class="device-toolbar"><div><i></i><h2>变形监测 <span>（<b id="deviceOnlineCount">0</b>/20）</span></h2></div><div class="toolbar-actions"><label class="toolbar-field">主站串口<select id="gatewayPortSelect" aria-label="主站串口"><option value="">自动扫描</option></select></label><button type="button" class="layout-button" id="refreshPortsButton" title="刷新串口列表">↻</button><button class="layout-button active" aria-label="卡片布局">▦</button><button class="layout-button" aria-label="列表布局">☷</button><select id="deviceFilter" aria-label="设备筛选"><option value="all">全部设备</option><option value="online">在线设备</option><option value="alarm">断开设备</option></select><label class="toolbar-field">导出范围<select id="exportHours" aria-label="导出时间范围"><option value="1">近 1 小时</option><option value="6">近 6 小时</option><option value="12">近 12 小时</option><option value="24" selected>近 24 小时</option><option value="48">近 48 小时</option><option value="168">近 7 天</option></select></label><button class="export-button" id="exportButton">⇩ 导出</button></div></div>
           <section id="meterGrid" class="meter-grid" aria-live="polite"></section>
         </section>
       </div>
@@ -56,6 +56,6 @@
     </div>
     <footer><span>安全监测</span><i></i><span>精准采集</span><i></i><span>实时预警</span><i></i><span>保障安全</span><b id="footerStatus">等待数据</b></footer>
   </main>
-  <script src="/assets/app.js?v=20260820-hydro1"></script>
+  <script src="/assets/app.js?v=20260828-export1"></script>
 </body>
 </html>
